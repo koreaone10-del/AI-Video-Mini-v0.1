@@ -88,7 +88,7 @@ jobs:
           echo "SIZE=$SIZE" >> "$GITHUB_ENV"
 
           # CPU proof-test settings.
-          # Keep unchanged.
+          # DO NOT CHANGE YET.
           echo "FRAME_NUM=9" >> "$GITHUB_ENV"
           echo "SAMPLE_STEPS=4" >> "$GITHUB_ENV"
 
@@ -148,14 +148,6 @@ jobs:
 
       # ============================================================
       # 4. SYSTEM DEPENDENCIES
-      #
-      # ONLY CHANGE FROM PREVIOUS VERSION:
-      # Do not run apt-get update/install blindly.
-      # GitHub ubuntu-24.04 runners already contain the required
-      # tools in the normal case.
-      #
-      # If something is actually missing, install only the missing
-      # package(s), and only then perform apt-get update.
       # ============================================================
 
       - name: Install system dependencies
@@ -194,6 +186,7 @@ jobs:
             echo "Installing only missing packages..."
 
             sudo apt-get update -qq
+
             sudo apt-get install -y --no-install-recommends \
               "${MISSING_PACKAGES[@]}"
           fi
@@ -346,7 +339,9 @@ jobs:
                   new_t5,
                   1
               )
+
               t5.write_text(t5_text)
+
               print("PATCHED: wan/modules/t5.py")
           else:
               print(
@@ -382,7 +377,10 @@ jobs:
                   new_device,
                   1
               )
-              print("PATCHED: text2video device selection")
+
+              print(
+                  "PATCHED: text2video device selection"
+              )
           else:
               print(
                   "INFO: text2video device selection already patched "
@@ -411,7 +409,10 @@ jobs:
                   new_autocast,
                   1
               )
-              print("PATCHED: text2video autocast")
+
+              print(
+                  "PATCHED: text2video autocast"
+              )
           else:
               print(
                   "INFO: text2video autocast already patched "
@@ -445,7 +446,7 @@ jobs:
 
           if empty_count:
               print(
-                  f"PATCHED: torch.cuda.empty_cache() "
+                  "PATCHED: torch.cuda.empty_cache() "
                   f"({empty_count} occurrence(s))"
               )
           else:
@@ -481,7 +482,7 @@ jobs:
 
           if sync_count:
               print(
-                  f"PATCHED: torch.cuda.synchronize() "
+                  "PATCHED: torch.cuda.synchronize() "
                   f"({sync_count} occurrence(s))"
               )
           else:
@@ -795,7 +796,74 @@ jobs:
             --data-binary @/tmp/callback-generating.json
 
       # ============================================================
-      # 17. GENERATE WAN2.1 CPU PROOF VIDEO
+      # 17. CONFIGURE SWAP FOR CPU MODEL LOADING
+      #
+      # NEW MEMORY-SAFETY STEP.
+      #
+      # This is the ONLY functional addition for the current error.
+      # It does not change Wan2.1, the model, resolution, frames,
+      # steps, callbacks, Render or GitHub architecture.
+      # ============================================================
+
+      - name: Configure memory safety for CPU inference
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================================="
+          echo "Memory before CPU inference"
+          echo "=============================================="
+
+          free -h
+
+          echo
+          echo "Disk:"
+          df -h /
+
+          echo
+          echo "Existing swap:"
+          swapon --show || true
+
+          # --------------------------------------------------------
+          # Create an 8 GB swap file only if swap is not already
+          # available.
+          # --------------------------------------------------------
+
+          if swapon --show --noheadings | grep -q .; then
+            echo
+            echo "Swap already exists."
+          else
+            echo
+            echo "Creating 8 GB swap file..."
+
+            sudo fallocate -l 8G /swapfile
+
+            sudo chmod 600 /swapfile
+
+            sudo mkswap /swapfile
+
+            sudo swapon /swapfile
+
+            echo
+            echo "Swap enabled."
+          fi
+
+          echo
+          echo "=============================================="
+          echo "Memory after swap configuration"
+          echo "=============================================="
+
+          free -h
+
+          echo
+          echo "Swap:"
+          swapon --show || true
+
+          echo
+          echo "Memory safety: READY"
+
+      # ============================================================
+      # 18. GENERATE WAN2.1 CPU PROOF VIDEO
       # ============================================================
 
       - name: Generate Wan2.1 CPU proof video
@@ -826,6 +894,14 @@ jobs:
           echo "Offload:      True"
           echo "T5 CPU:       True"
           echo "=============================================="
+
+          echo
+          echo "Memory immediately before generation:"
+          free -h
+
+          echo
+          echo "Swap immediately before generation:"
+          swapon --show || true
 
           python generate.py \
             --task t2v-1.3B \
@@ -869,7 +945,7 @@ jobs:
           echo "FINAL_VIDEO=$FINAL_VIDEO" >> "$GITHUB_ENV"
 
       # ============================================================
-      # 18. INSPECT FINAL VIDEO
+      # 19. INSPECT FINAL VIDEO
       # ============================================================
 
       - name: Inspect final video
@@ -899,7 +975,7 @@ jobs:
             "${FINAL_VIDEO}"
 
       # ============================================================
-      # 19. CALLBACK - UPLOADING
+      # 20. CALLBACK - UPLOADING
       # ============================================================
 
       - name: Callback - Uploading
@@ -928,7 +1004,7 @@ jobs:
             --data-binary @/tmp/callback-uploading.json
 
       # ============================================================
-      # 20. UPLOAD VIDEO
+      # 21. UPLOAD VIDEO
       # ============================================================
 
       - name: Upload video to Render
@@ -958,7 +1034,7 @@ jobs:
           echo "Video uploaded successfully."
 
       # ============================================================
-      # 21. CALLBACK - COMPLETED
+      # 22. CALLBACK - COMPLETED
       # ============================================================
 
       - name: Callback - Completed
@@ -997,7 +1073,7 @@ jobs:
             --data-binary @/tmp/completed.json
 
       # ============================================================
-      # 22. CALLBACK - FAILED
+      # 23. CALLBACK - FAILED
       # ============================================================
 
       - name: Callback - Failed
