@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI Video Mini</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:#0b0d12;color:#f5f7fb;font-family:system-ui,sans-serif}
+.card{width:min(760px,100%);padding:28px;border:1px solid #242936;border-radius:20px;background:#11141b}
+h1{margin:0 0 8px} p{color:#9da5b5}
+textarea{width:100%;min-height:150px;padding:16px;border-radius:14px;border:1px solid #303746;background:#0b0e14;color:#fff;font:inherit}
+button{margin-top:14px;width:100%;padding:14px;border:0;border-radius:12px;background:#fff;color:#111;font-weight:700}
+button:disabled{opacity:.5}
+#status{margin-top:18px;white-space:pre-wrap}
+video{width:100%;margin-top:18px;border-radius:14px;background:#000}
+.small{font-size:13px}
+</style>
+</head>
+<body>
+<main class="card">
+<h1>AI Video Mini</h1>
+<p>Wan2.1 T2V-1.3B · first test: Prompt → short 480p video</p>
+<textarea id="prompt">A cinematic drone shot flying over a futuristic city at sunset, realistic lighting, smooth camera movement.</textarea>
+<button id="generate">GENERATE VIDEO</button>
+<div id="status" class="small">Ready.</div>
+<video id="video" controls hidden></video>
+</main>
+<script>
+const button=document.getElementById("generate");
+const promptBox=document.getElementById("prompt");
+const statusBox=document.getElementById("status");
+const video=document.getElementById("video");
+
+button.onclick=async()=>{
+ const prompt=promptBox.value.trim();
+ if(!prompt)return;
+ button.disabled=true; video.hidden=true; video.removeAttribute("src");
+ statusBox.textContent="Starting...";
+ try{
+  const r=await fetch("/api/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt})});
+  const data=await r.json();
+  if(!r.ok)throw new Error(data.detail||"Failed to create job");
+  for(;;){
+   await new Promise(x=>setTimeout(x,2500));
+   const s=await (await fetch("/api/status/"+data.job_id)).json();
+   if(s.status==="queued")statusBox.textContent="Queued...";
+   else if(s.status==="generating")statusBox.textContent="Generating with Wan2.1...\nThis first test can take several minutes.";
+   else if(s.status==="done"){
+    statusBox.textContent="Done.";
+    video.src=s.file; video.hidden=false; break;
+   }else if(s.status==="error")throw new Error(s.error||"Generation failed");
+  }
+ }catch(e){statusBox.textContent="ERROR:\n"+e.message}
+ finally{button.disabled=false}
+};
+</script>
+</body>
+</html>
