@@ -43,9 +43,9 @@ jobs:
 
     steps:
 
-      # ------------------------------------------------------------
+      # ============================================================
       # 1. Prepare job variables
-      # ------------------------------------------------------------
+      # ============================================================
       - name: Prepare job variables
         shell: bash
         env:
@@ -58,6 +58,7 @@ jobs:
           MANUAL_PROMPT: ${{ inputs.prompt }}
           MANUAL_ASPECT: ${{ inputs.aspect_ratio }}
           MANUAL_DURATION: ${{ inputs.duration }}
+
         run: |
           set -e
 
@@ -81,14 +82,18 @@ jobs:
           echo "ASPECT=$ASPECT" >> "$GITHUB_ENV"
           echo "DURATION=$DURATION" >> "$GITHUB_ENV"
 
-          echo "Job: $JOB_ID"
-          echo "Prompt: $PROMPT"
-          echo "Aspect: $ASPECT"
-          echo "Duration: $DURATION"
+          echo "======================================"
+          echo "Job information"
+          echo "======================================"
+          echo "JOB_ID:   $JOB_ID"
+          echo "PROMPT:   $PROMPT"
+          echo "ASPECT:   $ASPECT"
+          echo "DURATION: $DURATION"
+          echo "======================================"
 
-      # ------------------------------------------------------------
-      # 2. Callback - starting
-      # ------------------------------------------------------------
+      # ============================================================
+      # 2. Callback - Starting
+      # ============================================================
       - name: Callback - Starting
         shell: bash
         run: |
@@ -107,15 +112,15 @@ jobs:
               \"error\":null
             }"
 
-      # ------------------------------------------------------------
-      # 3. Checkout worker repository
-      # ------------------------------------------------------------
+      # ============================================================
+      # 3. Checkout repository
+      # ============================================================
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ------------------------------------------------------------
+      # ============================================================
       # 4. Install system dependencies
-      # ------------------------------------------------------------
+      # ============================================================
       - name: Install system dependencies
         shell: bash
         run: |
@@ -132,9 +137,9 @@ jobs:
             curl \
             ca-certificates
 
-      # ------------------------------------------------------------
+      # ============================================================
       # 5. Hardware check
-      # ------------------------------------------------------------
+      # ============================================================
       - name: Check hardware
         shell: bash
         run: |
@@ -154,6 +159,7 @@ jobs:
 
           echo ""
           echo "NVIDIA:"
+          
           if command -v nvidia-smi >/dev/null 2>&1; then
             nvidia-smi || true
           else
@@ -161,9 +167,9 @@ jobs:
             echo "Continuing with CPU-compatible Wan2.1 setup."
           fi
 
-      # ------------------------------------------------------------
-      # 6. Callback - installing
-      # ------------------------------------------------------------
+      # ============================================================
+      # 6. Callback - Installing Wan2.1
+      # ============================================================
       - name: Callback - Installing Wan2.1
         shell: bash
         run: |
@@ -182,9 +188,9 @@ jobs:
               \"error\":null
             }"
 
-      # ------------------------------------------------------------
+      # ============================================================
       # 7. Clone official Wan2.1
-      # ------------------------------------------------------------
+      # ============================================================
       - name: Clone Wan2.1
         shell: bash
         run: |
@@ -192,13 +198,14 @@ jobs:
 
           rm -rf Wan2.1
 
-          git clone --depth 1 \
+          git clone \
+            --depth 1 \
             https://github.com/Wan-Video/Wan2.1.git \
             Wan2.1
 
-      # ------------------------------------------------------------
+      # ============================================================
       # 8. Create Python environment
-      # ------------------------------------------------------------
+      # ============================================================
       - name: Create Python environment
         shell: bash
         run: |
@@ -213,18 +220,9 @@ jobs:
             setuptools \
             wheel
 
-      # ------------------------------------------------------------
-      # 9. Install CPU PyTorch first
-      # ------------------------------------------------------------
-      #
-      # IMPORTANT:
-      # The GitHub hosted runner has no NVIDIA GPU.
-      #
-      # Therefore we explicitly install the CPU PyTorch wheels.
-      #
-      # We do NOT install flash_attn here.
-      #
-      # ------------------------------------------------------------
+      # ============================================================
+      # 9. Install CPU PyTorch
+      # ============================================================
       - name: Install CPU PyTorch
         shell: bash
         run: |
@@ -245,30 +243,30 @@ jobs:
           print("======================================")
           print("PyTorch verification")
           print("======================================")
+
           print("torch:", torch.__version__)
           print("torchvision:", torchvision.__version__)
           print("cuda available:", torch.cuda.is_available())
           print("device count:", torch.cuda.device_count())
 
           if torch.cuda.is_available():
-              print("WARNING: CUDA detected.")
+              print("CUDA detected.")
           else:
               print("CPU mode confirmed.")
+
+          print("======================================")
           PY
 
-      # ------------------------------------------------------------
-      # 10. Install remaining Wan2.1 dependencies
-      # ------------------------------------------------------------
+      # ============================================================
+      # 10. Install Wan2.1 dependencies
       #
-      # Official Wan2.1 requirements contain flash_attn.
+      # We deliberately exclude:
+      #   torch
+      #   torchvision
+      #   flash_attn
       #
-      # flash_attn is deliberately excluded because this worker
-      # currently runs on a CPU-only GitHub hosted runner.
-      #
-      # Wan2.1 attention.py contains a PyTorch SDPA fallback when
-      # FlashAttention is unavailable.
-      #
-      # ------------------------------------------------------------
+      # because this GitHub runner has no NVIDIA GPU.
+      # ============================================================
       - name: Install Wan2.1 dependencies
         shell: bash
         run: |
@@ -278,11 +276,9 @@ jobs:
 
           cd Wan2.1
 
-          echo "Installing Wan2.1 dependencies except:"
-          echo "  - torch"
-          echo "  - torchvision"
-          echo "  - flash_attn"
-          echo ""
+          echo "======================================"
+          echo "Preparing CPU-compatible requirements"
+          echo "======================================"
 
           python - <<'PY'
           from pathlib import Path
@@ -290,7 +286,7 @@ jobs:
           src = Path("requirements.txt")
           dst = Path("/tmp/wan-requirements-cpu.txt")
 
-          lines = src.read_text().splitlines()
+          lines = src.read_text(encoding="utf-8").splitlines()
 
           skip = {
               "torch",
@@ -306,31 +302,48 @@ jobs:
               if not stripped:
                   continue
 
-              name = stripped.split(">=")[0]
-              name = name.split("==")[0]
-              name = name.split("<")[0]
-              name = name.split(">")[0]
+              if stripped.startswith("#"):
+                  continue
 
-              if name.strip() in skip:
+              name = stripped
+
+              for separator in [
+                  ">=",
+                  "<=",
+                  "==",
+                  ">",
+                  "<",
+                  "~=",
+              ]:
+                  name = name.split(separator)[0]
+
+              name = name.strip()
+
+              if name in skip:
                   print(f"SKIP: {stripped}")
                   continue
 
               output.append(stripped)
 
-          dst.write_text("\n".join(output) + "\n")
+          dst.write_text(
+              "\n".join(output) + "\n",
+              encoding="utf-8"
+          )
 
           print("")
+          print("======================================")
           print("CPU-compatible requirements:")
-          print(dst.read_text())
+          print("======================================")
+          print(dst.read_text(encoding="utf-8"))
           PY
 
           python -m pip install \
             --no-cache-dir \
             -r /tmp/wan-requirements-cpu.txt
 
-      # ------------------------------------------------------------
-      # 11. Final dependency verification
-      # ------------------------------------------------------------
+      # ============================================================
+      # 11. Verify Wan2.1 installation
+      # ============================================================
       - name: Verify Wan2.1 installation
         shell: bash
         run: |
@@ -363,15 +376,19 @@ jobs:
               import flash_attn
               print("flash_attn: INSTALLED")
           except Exception:
-              print("flash_attn: NOT INSTALLED (CPU fallback expected)")
+              print(
+                  "flash_attn: NOT INSTALLED "
+                  "(CPU fallback expected)"
+              )
 
           print("")
           print("Wan2.1 dependencies OK.")
+          print("======================================")
           PY
 
-      # ------------------------------------------------------------
-      # 12. Hugging Face CLI
-      # ------------------------------------------------------------
+      # ============================================================
+      # 12. Install Hugging Face CLI
+      # ============================================================
       - name: Install Hugging Face CLI
         shell: bash
         run: |
@@ -383,9 +400,16 @@ jobs:
             --no-cache-dir \
             "huggingface_hub[cli]"
 
-      # ------------------------------------------------------------
-      # 13. Callback - downloading model
-      # ------------------------------------------------------------
+          echo ""
+          echo "Checking Hugging Face CLI..."
+
+          hf --help >/dev/null
+
+          echo "HF CLI is ready."
+
+      # ============================================================
+      # 13. Callback - Downloading model
+      # ============================================================
       - name: Callback - Downloading model
         shell: bash
         run: |
@@ -404,9 +428,13 @@ jobs:
               \"error\":null
             }"
 
-      # ------------------------------------------------------------
+      # ============================================================
       # 14. Download Wan2.1 T2V 1.3B
-      # ------------------------------------------------------------
+      #
+      # IMPORTANT:
+      # huggingface-cli is deprecated.
+      # Use hf download.
+      # ============================================================
       - name: Download Wan2.1 T2V 1.3B
         shell: bash
         run: |
@@ -416,15 +444,36 @@ jobs:
 
           cd Wan2.1
 
+          rm -rf Wan2.1-T2V-1.3B
+
           mkdir -p Wan2.1-T2V-1.3B
 
-          huggingface-cli download \
+          echo "======================================"
+          echo "Downloading Wan2.1 T2V 1.3B"
+          echo "======================================"
+
+          hf download \
             Wan-AI/Wan2.1-T2V-1.3B \
             --local-dir ./Wan2.1-T2V-1.3B
 
-      # ------------------------------------------------------------
-      # 15. Callback - generating
-      # ------------------------------------------------------------
+          echo ""
+          echo "======================================"
+          echo "Wan2.1 model download completed"
+          echo "======================================"
+
+          du -sh ./Wan2.1-T2V-1.3B
+
+          echo ""
+          echo "Model files:"
+          
+          find ./Wan2.1-T2V-1.3B \
+            -maxdepth 2 \
+            -type f \
+            | head -50
+
+      # ============================================================
+      # 15. Callback - Generating
+      # ============================================================
       - name: Callback - Generating
         shell: bash
         run: |
@@ -443,9 +492,9 @@ jobs:
               \"error\":null
             }"
 
-      # ------------------------------------------------------------
-      # 16. Generate video
-      # ------------------------------------------------------------
+      # ============================================================
+      # 16. Generate video with Wan2.1
+      # ============================================================
       - name: Generate video with Wan2.1
         shell: bash
         run: |
@@ -461,15 +510,19 @@ jobs:
             "16:9")
               SIZE="832*480"
               ;;
+
             "9:16")
               SIZE="480*832"
               ;;
+
             "1:1")
               SIZE="480*480"
               ;;
+
             *)
               echo "Unknown aspect ratio: $ASPECT"
               echo "Using 16:9."
+
               SIZE="832*480"
               ;;
           esac
@@ -477,12 +530,14 @@ jobs:
           echo "======================================"
           echo "Wan2.1 generation"
           echo "======================================"
+
           echo "Job:      $JOB_ID"
           echo "Prompt:   $PROMPT"
           echo "Aspect:   $ASPECT"
           echo "Duration: $DURATION"
           echo "Size:     $SIZE"
           echo "Mode:     CPU"
+
           echo "======================================"
 
           python generate.py \
@@ -493,25 +548,45 @@ jobs:
             --sample_guide_scale 6 \
             --prompt "$PROMPT"
 
-          FOUND_VIDEO="$(find output -maxdepth 1 -type f \( \
-            -name '*.mp4' -o \
-            -name '*.webm' -o \
-            -name '*.mov' \
-          \) | head -n 1)"
+          echo ""
+          echo "Searching for generated video..."
+
+          FOUND_VIDEO="$(
+            find output \
+              -maxdepth 1 \
+              -type f \
+              \( \
+                -name '*.mp4' \
+                -o \
+                -name '*.webm' \
+                -o \
+                -name '*.mov' \
+              \) \
+              | head -n 1
+          )"
 
           if [ -z "$FOUND_VIDEO" ]; then
             echo "No generated video found."
+
+            echo ""
+            echo "Output directory:"
             ls -lah output || true
+
             exit 1
           fi
 
-          cp "$FOUND_VIDEO" "output/${JOB_ID}.mp4"
+          echo "Found video:"
+          echo "$FOUND_VIDEO"
+
+          cp \
+            "$FOUND_VIDEO" \
+            "output/${JOB_ID}.mp4"
 
           echo "FINAL_VIDEO=output/${JOB_ID}.mp4" >> "$GITHUB_ENV"
 
-      # ------------------------------------------------------------
+      # ============================================================
       # 17. Inspect final video
-      # ------------------------------------------------------------
+      # ============================================================
       - name: Inspect final video
         shell: bash
         run: |
@@ -521,18 +596,26 @@ jobs:
 
           test -f "output/${JOB_ID}.mp4"
 
+          echo "======================================"
+          echo "Final video information"
+          echo "======================================"
+
           ffprobe \
             -v error \
-            -show_entries format=duration,size \
-            -show_entries stream=codec_name,width,height,r_frame_rate \
+            -show_entries \
+            format=duration,size \
+            -show_entries \
+            stream=codec_name,width,height,r_frame_rate \
             -of default=noprint_wrappers=1 \
             "output/${JOB_ID}.mp4"
 
+          echo ""
+          echo "File:"
           ls -lh "output/${JOB_ID}.mp4"
 
-      # ------------------------------------------------------------
-      # 18. Callback - uploading
-      # ------------------------------------------------------------
+      # ============================================================
+      # 18. Callback - Uploading
+      # ============================================================
       - name: Callback - Uploading
         shell: bash
         run: |
@@ -551,15 +634,19 @@ jobs:
               \"error\":null
             }"
 
-      # ------------------------------------------------------------
+      # ============================================================
       # 19. Upload video to Render
-      # ------------------------------------------------------------
+      # ============================================================
       - name: Upload video to Render
         shell: bash
         run: |
           set -e
 
           cd Wan2.1
+
+          echo "======================================"
+          echo "Uploading video to Render"
+          echo "======================================"
 
           curl -sS -f \
             -X POST \
@@ -569,12 +656,19 @@ jobs:
             --data-binary "@output/${JOB_ID}.mp4" \
             > /tmp/upload-response.json
 
+          echo ""
+          echo "Render upload response:"
           cat /tmp/upload-response.json
 
-          OUTPUT_URL="$(python3 - <<'PY'
+          OUTPUT_URL="$(
+            python3 - <<'PY'
           import json
 
-          with open("/tmp/upload-response.json", "r", encoding="utf-8") as f:
+          with open(
+              "/tmp/upload-response.json",
+              "r",
+              encoding="utf-8"
+          ) as f:
               data = json.load(f)
 
           print(data.get("output_url", ""))
@@ -586,11 +680,15 @@ jobs:
             exit 1
           fi
 
+          echo ""
+          echo "OUTPUT_URL:"
+          echo "$OUTPUT_URL"
+
           echo "OUTPUT_URL=$OUTPUT_URL" >> "$GITHUB_ENV"
 
-      # ------------------------------------------------------------
-      # 20. Callback - completed
-      # ------------------------------------------------------------
+      # ============================================================
+      # 20. Callback - Completed
+      # ============================================================
       - name: Callback - Completed
         shell: bash
         run: |
@@ -606,6 +704,10 @@ jobs:
           }
           JSON
 
+          echo "======================================"
+          echo "Completed callback"
+          echo "======================================"
+
           cat /tmp/completed.json
 
           curl -sS -f \
@@ -615,9 +717,9 @@ jobs:
             -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
             --data-binary @/tmp/completed.json
 
-      # ------------------------------------------------------------
-      # 21. Callback - failed
-      # ------------------------------------------------------------
+      # ============================================================
+      # 21. Callback - Failed
+      # ============================================================
       - name: Callback - Failed
         if: failure()
         shell: bash
