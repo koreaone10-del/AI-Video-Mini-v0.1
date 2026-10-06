@@ -302,6 +302,29 @@ jobs:
           videogen --help | head -n 25
 
       # ============================================================
+      # 8.5. INSTALL PEFT REQUIRED BY THE DRAFT LORA
+      # ============================================================
+      - name: Install and verify PEFT backend
+        shell: bash
+        run: |
+          set -e
+
+          source .venv/bin/activate
+
+          python -m pip install peft
+
+          python - <<'PY'
+          import peft
+          from diffusers.utils import USE_PEFT_BACKEND
+
+          if not USE_PEFT_BACKEND:
+              raise SystemExit("Diffusers did not enable its PEFT backend")
+
+          print("PEFT version:", peft.__version__)
+          print("Diffusers PEFT backend: enabled")
+          PY
+
+      # ============================================================
       # 9. VERIFY VIDEOGEN
       # ============================================================
       - name: Verify videogen
