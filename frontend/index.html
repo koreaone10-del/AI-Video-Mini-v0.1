@@ -1,59 +1,628 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>AI Video Mini</title>
-<style>
-*{box-sizing:border-box}
-body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:#0b0d12;color:#f5f7fb;font-family:system-ui,sans-serif}
-.card{width:min(760px,100%);padding:28px;border:1px solid #242936;border-radius:20px;background:#11141b}
-h1{margin:0 0 8px} p{color:#9da5b5}
-textarea{width:100%;min-height:150px;padding:16px;border-radius:14px;border:1px solid #303746;background:#0b0e14;color:#fff;font:inherit}
-button{margin-top:14px;width:100%;padding:14px;border:0;border-radius:12px;background:#fff;color:#111;font-weight:700}
-button:disabled{opacity:.5}
-#status{margin-top:18px;white-space:pre-wrap}
-video{width:100%;margin-top:18px;border-radius:14px;background:#000}
-.small{font-size:13px}
-</style>
-</head>
-<body>
-<main class="card">
-<h1>AI Video Mini</h1>
-<p>Wan2.1 T2V-1.3B · first test: Prompt → short 480p video</p>
-<textarea id="prompt">A cinematic drone shot flying over a futuristic city at sunset, realistic lighting, smooth camera movement.</textarea>
-<button id="generate">GENERATE VIDEO</button>
-<div id="status" class="small">Ready.</div>
-<video id="video" controls hidden></video>
-</main>
-<script>
-const button=document.getElementById("generate");
-const promptBox=document.getElementById("prompt");
-const statusBox=document.getElementById("status");
-const video=document.getElementById("video");
+    <meta charset="UTF-8">
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
 
-button.onclick=async()=>{
- const prompt=promptBox.value.trim();
- if(!prompt)return;
- button.disabled=true; video.hidden=true; video.removeAttribute("src");
- statusBox.textContent="Starting...";
- try{
-  const r=await fetch("/api/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt})});
-  const data=await r.json();
-  if(!r.ok)throw new Error(data.detail||"Failed to create job");
-  for(;;){
-   await new Promise(x=>setTimeout(x,2500));
-   const s=await (await fetch("/api/status/"+data.job_id)).json();
-   if(s.status==="queued")statusBox.textContent="Queued...";
-   else if(s.status==="generating")statusBox.textContent="Generating with Wan2.1...\nThis first test can take several minutes.";
-   else if(s.status==="done"){
-    statusBox.textContent="Done.";
-    video.src=s.file; video.hidden=false; break;
-   }else if(s.status==="error")throw new Error(s.error||"Generation failed");
-  }
- }catch(e){statusBox.textContent="ERROR:\n"+e.message}
- finally{button.disabled=false}
-};
+    <title>AI Video Mini</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: Arial, Helvetica, sans-serif;
+            background:
+                radial-gradient(circle at top left, #172554, transparent 35%),
+                radial-gradient(circle at bottom right, #312e81, transparent 35%),
+                #050816;
+            color: #ffffff;
+        }
+
+        .container {
+            width: min(920px, 94%);
+            margin: 0 auto;
+            padding: 50px 0;
+        }
+
+        .hero {
+            text-align: center;
+            margin-bottom: 35px;
+        }
+
+        .hero h1 {
+            margin: 0;
+            font-size: clamp(36px, 7vw, 64px);
+            font-weight: 800;
+            letter-spacing: -2px;
+        }
+
+        .hero h1 span {
+            color: #8b5cf6;
+        }
+
+        .hero p {
+            margin-top: 14px;
+            color: #aab3c5;
+            font-size: 16px;
+        }
+
+        .card {
+            background: rgba(15, 23, 42, 0.82);
+            border: 1px solid rgba(148, 163, 184, 0.15);
+            border-radius: 24px;
+            padding: 25px;
+            box-shadow: 0 25px 80px rgba(0, 0, 0, 0.35);
+            backdrop-filter: blur(15px);
+        }
+
+        label {
+            display: block;
+            margin-bottom: 9px;
+            color: #dbe4f0;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        textarea,
+        select {
+            width: 100%;
+            border: 1px solid #273449;
+            border-radius: 14px;
+            background: #0b1220;
+            color: #ffffff;
+            outline: none;
+            transition: 0.2s;
+        }
+
+        textarea {
+            min-height: 150px;
+            padding: 16px;
+            resize: vertical;
+            font-size: 15px;
+            line-height: 1.5;
+        }
+
+        select {
+            padding: 14px;
+            font-size: 15px;
+        }
+
+        textarea:focus,
+        select:focus {
+            border-color: #8b5cf6;
+            box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.12);
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-top: 18px;
+        }
+
+        .generate {
+            width: 100%;
+            margin-top: 22px;
+            padding: 16px 20px;
+            border: 0;
+            border-radius: 14px;
+            background: linear-gradient(135deg, #7c3aed, #4f46e5);
+            color: white;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+
+        .generate:hover {
+            transform: translateY(-1px);
+            filter: brightness(1.08);
+        }
+
+        .generate:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .status {
+            display: none;
+            margin-top: 22px;
+            padding: 18px;
+            border-radius: 16px;
+            background: #0b1220;
+            border: 1px solid #273449;
+        }
+
+        .status.active {
+            display: block;
+        }
+
+        .status-title {
+            font-size: 16px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .status-text {
+            color: #aab3c5;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .progress {
+            height: 8px;
+            margin-top: 15px;
+            background: #1e293b;
+            border-radius: 20px;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            width: 0%;
+            height: 100%;
+            background: linear-gradient(90deg, #8b5cf6, #6366f1);
+            transition: width 0.4s ease;
+        }
+
+        .video-box {
+            display: none;
+            margin-top: 24px;
+        }
+
+        .video-box.active {
+            display: block;
+        }
+
+        video {
+            display: block;
+            width: 100%;
+            max-height: 600px;
+            border-radius: 16px;
+            background: #000;
+        }
+
+        .download {
+            display: inline-block;
+            width: 100%;
+            margin-top: 14px;
+            padding: 14px;
+            text-align: center;
+            text-decoration: none;
+            border-radius: 12px;
+            background: #172033;
+            color: #ffffff;
+            border: 1px solid #2b3952;
+        }
+
+        .download:hover {
+            background: #202c43;
+        }
+
+        .error {
+            color: #fca5a5;
+        }
+
+        .success {
+            color: #86efac;
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 28px;
+            color: #64748b;
+            font-size: 13px;
+        }
+
+        @media (max-width: 650px) {
+            .container {
+                padding: 25px 0;
+            }
+
+            .card {
+                padding: 18px;
+                border-radius: 18px;
+            }
+
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="container">
+
+    <div class="hero">
+        <h1>AI Video <span>Mini</span></h1>
+        <p>
+            Lightweight AI video generation powered by GitHub Actions.
+        </p>
+    </div>
+
+    <div class="card">
+
+        <label for="prompt">
+            Video Prompt
+        </label>
+
+        <textarea
+            id="prompt"
+            placeholder="Describe the video you want to generate..."
+        ></textarea>
+
+        <div class="grid">
+
+            <div>
+                <label for="aspect">
+                    Aspect Ratio
+                </label>
+
+                <select id="aspect">
+                    <option value="16:9">16:9 — Landscape</option>
+                    <option value="9:16">9:16 — Portrait</option>
+                    <option value="1:1">1:1 — Square</option>
+                </select>
+            </div>
+
+            <div>
+                <label for="duration">
+                    Duration
+                </label>
+
+                <select id="duration">
+                    <option value="5">5 seconds</option>
+                    <option value="10">10 seconds</option>
+                </select>
+            </div>
+
+        </div>
+
+        <button
+            id="generateBtn"
+            class="generate"
+        >
+            Generate Video
+        </button>
+
+        <div
+            id="status"
+            class="status"
+        >
+            <div
+                id="statusTitle"
+                class="status-title"
+            >
+                Preparing...
+            </div>
+
+            <div
+                id="statusText"
+                class="status-text"
+            >
+                Creating your job.
+            </div>
+
+            <div class="progress">
+                <div
+                    id="progressBar"
+                    class="progress-bar"
+                ></div>
+            </div>
+        </div>
+
+        <div
+            id="videoBox"
+            class="video-box"
+        >
+            <video
+                id="video"
+                controls
+                playsinline
+            ></video>
+
+            <a
+                id="download"
+                class="download"
+                href="#"
+                download
+            >
+                Download Video
+            </a>
+        </div>
+
+    </div>
+
+    <div class="footer">
+        AI Video Mini v0.1
+    </div>
+
+</div>
+
+<script>
+const promptInput = document.getElementById("prompt");
+const aspectInput = document.getElementById("aspect");
+const durationInput = document.getElementById("duration");
+
+const generateBtn = document.getElementById("generateBtn");
+
+const statusBox = document.getElementById("status");
+const statusTitle = document.getElementById("statusTitle");
+const statusText = document.getElementById("statusText");
+const progressBar = document.getElementById("progressBar");
+
+const videoBox = document.getElementById("videoBox");
+const video = document.getElementById("video");
+const download = document.getElementById("download");
+
+let pollingTimer = null;
+
+function showStatus(title, text, progress = 0) {
+    statusBox.classList.add("active");
+
+    statusTitle.textContent = title;
+    statusText.textContent = text;
+
+    const value = Math.max(
+        0,
+        Math.min(100, Number(progress) || 0)
+    );
+
+    progressBar.style.width = value + "%";
+}
+
+function showError(message) {
+    statusBox.classList.add("active");
+
+    statusTitle.textContent = "Generation failed";
+
+    statusText.textContent = message;
+
+    statusText.classList.add("error");
+
+    progressBar.style.width = "0%";
+}
+
+function resetUI() {
+    statusText.classList.remove("error");
+    statusText.classList.remove("success");
+
+    videoBox.classList.remove("active");
+
+    video.removeAttribute("src");
+    video.load();
+
+    download.removeAttribute("href");
+
+    progressBar.style.width = "0%";
+}
+
+function setButtonBusy(busy) {
+    generateBtn.disabled = busy;
+
+    if (busy) {
+        generateBtn.textContent = "Generating...";
+    } else {
+        generateBtn.textContent = "Generate Video";
+    }
+}
+
+async function createJob() {
+
+    const prompt = promptInput.value.trim();
+
+    if (!prompt) {
+        showError("Please enter a video prompt.");
+        return;
+    }
+
+    resetUI();
+
+    setButtonBusy(true);
+
+    showStatus(
+        "Creating job",
+        "Sending your request to the AI worker...",
+        5
+    );
+
+    try {
+
+        const response = await fetch("/api/jobs", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                prompt: prompt,
+                aspect_ratio: aspectInput.value,
+                duration: Number(durationInput.value)
+            })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(
+                data.detail ||
+                data.error ||
+                "Unable to create the job."
+            );
+        }
+
+        if (!data.job_id) {
+            throw new Error("Server did not return a job ID.");
+        }
+
+        showStatus(
+            "Job created",
+            "Waiting for GitHub Actions worker...",
+            10
+        );
+
+        pollJob(data.job_id);
+
+    } catch (error) {
+
+        showError(
+            error.message ||
+            "An unexpected error occurred."
+        );
+
+        setButtonBusy(false);
+    }
+}
+
+async function pollJob(jobId) {
+
+    if (pollingTimer) {
+        clearTimeout(pollingTimer);
+    }
+
+    try {
+
+        const response = await fetch(
+            "/api/jobs/" + encodeURIComponent(jobId),
+            {
+                method: "GET",
+                cache: "no-store"
+            }
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(
+                data.detail ||
+                data.error ||
+                "Unable to read job status."
+            );
+        }
+
+        const progress =
+            Number(data.progress) || 0;
+
+        const stage =
+            data.stage ||
+            data.status ||
+            "processing";
+
+        const message =
+            data.message ||
+            "Worker is processing your video...";
+
+        if (
+            data.status === "completed" ||
+            data.stage === "completed"
+        ) {
+
+            const videoUrl =
+                data.output_url ||
+                data.video_url ||
+                (
+                    "/api/jobs/" +
+                    encodeURIComponent(jobId) +
+                    "/video"
+                );
+
+            showStatus(
+                "Video ready",
+                "Your video has been generated successfully.",
+                100
+            );
+
+            statusText.classList.add("success");
+
+            video.src = videoUrl;
+
+            download.href = videoUrl;
+
+            download.download =
+                "ai-video-" + jobId + ".mp4";
+
+            videoBox.classList.add("active");
+
+            setButtonBusy(false);
+
+            return;
+        }
+
+        if (
+            data.status === "failed" ||
+            data.stage === "failed" ||
+            data.error
+        ) {
+
+            throw new Error(
+                data.error ||
+                "The worker failed to generate the video."
+            );
+        }
+
+        showStatus(
+            formatStage(stage),
+            message,
+            progress
+        );
+
+        pollingTimer = setTimeout(
+            () => pollJob(jobId),
+            2500
+        );
+
+    } catch (error) {
+
+        showError(
+            error.message ||
+            "Unable to check job status."
+        );
+
+        setButtonBusy(false);
+    }
+}
+
+function formatStage(stage) {
+
+    const value = String(stage || "")
+        .replace(/_/g, " ")
+        .trim();
+
+    if (!value) {
+        return "Processing";
+    }
+
+    return value.charAt(0).toUpperCase()
+        + value.slice(1);
+}
+
+generateBtn.addEventListener(
+    "click",
+    createJob
+);
+
+promptInput.addEventListener(
+    "keydown",
+    function(event) {
+
+        if (
+            (event.ctrlKey || event.metaKey) &&
+            event.key === "Enter"
+        ) {
+            createJob();
+        }
+
+    }
+);
 </script>
+
 </body>
 </html>
