@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: ai-video-mini
+    runtime: python
+    plan: free
+
+    buildCommand: pip install -r backend/requirements.txt
+
+    startCommand: uvicorn backend.app:app --host 0.0.0.0 --port $PORT
+
+    envVars:
+      - key: GITHUB_OWNER
+        value: koreaone10-del
+
+      - key: GITHUB_REPO
+        value: AI-Video-Mini-v0.1
+
+      - key: GITHUB_EVENT_TYPE
+        value: ai_video_job
+
+      - key: GITHUB_DISPATCH_TOKEN
+        sync: false
+
+      - key: RENDER_CALLBACK_SECRET
+        sync: false
