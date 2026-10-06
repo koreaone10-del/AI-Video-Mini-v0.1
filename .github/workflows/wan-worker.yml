@@ -1,0 +1,360 @@
+name: Wan2.1 Worker
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: "Render Job ID"
+        required: true
+        type: string
+
+      prompt:
+        description: "Video prompt"
+        required: true
+        type: string
+
+      aspect_ratio:
+        description: "Aspect ratio"
+        required: false
+        default: "16:9"
+        type: string
+
+      duration:
+        description: "Duration"
+        required: false
+        default: "5"
+        type: string
+
+  repository_dispatch:
+    types:
+      - ai_video_job
+
+permissions:
+  contents: read
+
+env:
+  RENDER_BASE_URL: ${{ secrets.RENDER_BASE_URL }}
+  RENDER_CALLBACK_SECRET: ${{ secrets.RENDER_CALLBACK_SECRET }}
+
+jobs:
+
+  wan:
+
+    name: Wan2.1 T2V Worker
+
+    runs-on: ubuntu-24.04
+
+    steps:
+
+      - name: Prepare job variables
+        shell: bash
+        env:
+          DISPATCH_JOB_ID: ${{ github.event.client_payload.job_id }}
+          DISPATCH_PROMPT: ${{ github.event.client_payload.prompt }}
+          DISPATCH_ASPECT: ${{ github.event.client_payload.aspect_ratio }}
+          DISPATCH_DURATION: ${{ github.event.client_payload.duration }}
+
+          MANUAL_JOB_ID: ${{ inputs.job_id }}
+          MANUAL_PROMPT: ${{ inputs.prompt }}
+          MANUAL_ASPECT: ${{ inputs.aspect_ratio }}
+          MANUAL_DURATION: ${{ inputs.duration }}
+
+        run: |
+          set -e
+
+          JOB_ID="${DISPATCH_JOB_ID:-$MANUAL_JOB_ID}"
+          PROMPT="${DISPATCH_PROMPT:-$MANUAL_PROMPT}"
+          ASPECT="${DISPATCH_ASPECT:-$MANUAL_ASPECT}"
+          DURATION="${DISPATCH_DURATION:-$MANUAL_DURATION}"
+
+          test -n "$JOB_ID"
+          test -n "$PROMPT"
+
+          echo "JOB_ID=$JOB_ID" >> "$GITHUB_ENV"
+          echo "PROMPT=$PROMPT" >> "$GITHUB_ENV"
+          echo "ASPECT=$ASPECT" >> "$GITHUB_ENV"
+          echo "DURATION=$DURATION" >> "$GITHUB_ENV"
+
+          echo "JOB_ID=$JOB_ID"
+          echo "ASPECT=$ASPECT"
+          echo "DURATION=$DURATION"
+
+      - name: Callback - Starting
+        shell: bash
+        run: |
+          set -e
+
+          curl -sS -f \
+            -X POST \
+            "${RENDER_BASE_URL}/api/worker/jobs/${JOB_ID}/callback" \
+            -H "Content-Type: application/json" \
+            -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
+            -d '{
+              "status":"processing",
+              "progress":5,
+              "stage":"worker_started"
+            }'
+
+      - name: Checkout worker repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        shell: bash
+        run: |
+          set -e
+
+          sudo apt-get update
+
+          sudo apt-get install -y \
+            ffmpeg \
+            git \
+            python3 \
+            python3-pip \
+            python3-venv \
+            curl \
+            ca-certificates
+
+      - name: Check runner hardware
+        shell: bash
+        run: |
+          echo "=========================================="
+          echo "RUNNER"
+          echo "=========================================="
+
+          uname -a
+          lscpu | head -25
+
+          echo "=========================================="
+          echo "NVIDIA"
+          echo "=========================================="
+
+          if command -v nvidia-smi >/dev/null 2>&1; then
+            nvidia-smi
+          else
+            echo "No NVIDIA GPU detected."
+            echo "Continuing with configured Wan worker."
+          fi
+
+      - name: Callback - Preparing Wan2.1
+        shell: bash
+        run: |
+          set -e
+
+          curl -sS -f \
+            -X POST \
+            "${RENDER_BASE_URL}/api/worker/jobs/${JOB_ID}/callback" \
+            -H "Content-Type: application/json" \
+            -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
+            -d '{
+              "status":"processing",
+              "progress":10,
+              "stage":"installing_wan"
+            }'
+
+      - name: Clone Wan2.1
+        shell: bash
+        run: |
+          set -e
+
+          git clone --depth 1 \
+            https://github.com/Wan-Video/Wan2.1.git
+
+      - name: Create Python environment
+        shell: bash
+        run: |
+          set -e
+
+          python3 -m venv .venv
+
+          source .venv/bin/activate
+
+          python -m pip install \
+            --upgrade \
+            pip \
+            setuptools \
+            wheel
+
+      - name: Install Wan2.1 dependencies
+        shell: bash
+        run: |
+          set -e
+
+          source .venv/bin/activate
+
+          cd Wan2.1
+
+          pip install -r requirements.txt
+
+      - name: Install Hugging Face CLI
+        shell: bash
+        run: |
+          set -e
+
+          source .venv/bin/activate
+
+          pip install \
+            "huggingface_hub[cli]"
+
+      - name: Callback - Downloading model
+        shell: bash
+        run: |
+          set -e
+
+          curl -sS -f \
+            -X POST \
+            "${RENDER_BASE_URL}/api/worker/jobs/${JOB_ID}/callback" \
+            -H "Content-Type: application/json" \
+            -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
+            -d '{
+              "status":"processing",
+              "progress":20,
+              "stage":"downloading_model"
+            }'
+
+      - name: Download Wan2.1 T2V 1.3B
+        shell: bash
+        run: |
+          set -e
+
+          source .venv/bin/activate
+
+          huggingface-cli download \
+            Wan-AI/Wan2.1-T2V-1.3B \
+            --local-dir ./Wan2.1/Wan2.1-T2V-1.3B
+
+      - name: Callback - Generating
+        shell: bash
+        run: |
+          set -e
+
+          curl -sS -f \
+            -X POST \
+            "${RENDER_BASE_URL}/api/worker/jobs/${JOB_ID}/callback" \
+            -H "Content-Type: application/json" \
+            -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
+            -d '{
+              "status":"processing",
+              "progress":30,
+              "stage":"generating_video"
+            }'
+
+      - name: Generate video with Wan2.1
+        shell: bash
+        run: |
+          set -e
+
+          source .venv/bin/activate
+
+          mkdir -p output
+
+          cd Wan2.1
+
+          python generate.py \
+            --task t2v-1.3B \
+            --size 832*480 \
+            --ckpt_dir ./Wan2.1-T2V-1.3B \
+            --offload_model True \
+            --t5_cpu \
+            --sample_shift 8 \
+            --sample_guide_scale 6 \
+            --prompt "$PROMPT" \
+            --save_file "../output/${JOB_ID}.mp4"
+
+      - name: Inspect final video
+        shell: bash
+        run: |
+          set -e
+
+          VIDEO="output/${JOB_ID}.mp4"
+
+          test -f "$VIDEO"
+          test "$(stat -c%s "$VIDEO")" -gt 1024
+
+          ffprobe \
+            -v error \
+            -show_entries format=duration,size \
+            -of default=noprint_wrappers=1 \
+            "$VIDEO"
+
+      - name: Callback - Uploading
+        shell: bash
+        run: |
+          set -e
+
+          curl -sS -f \
+            -X POST \
+            "${RENDER_BASE_URL}/api/worker/jobs/${JOB_ID}/callback" \
+            -H "Content-Type: application/json" \
+            -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
+            -d '{
+              "status":"processing",
+              "progress":90,
+              "stage":"uploading_video"
+            }'
+
+      - name: Upload video to Render
+        shell: bash
+        run: |
+          set -e
+
+          VIDEO="output/${JOB_ID}.mp4"
+
+          RESPONSE="$(
+            curl -sS -f \
+              -X POST \
+              "${RENDER_BASE_URL}/api/worker/jobs/${JOB_ID}/upload" \
+              -H "Content-Type: video/mp4" \
+              -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
+              --data-binary "@${VIDEO}"
+          )"
+
+          echo "$RESPONSE"
+
+          OUTPUT_URL="$(
+            python3 -c \
+              'import json,sys; print(json.load(sys.stdin)["output_url"])' \
+              <<< "$RESPONSE"
+          )
+
+          echo "OUTPUT_URL=$OUTPUT_URL" >> "$GITHUB_ENV"
+
+      - name: Callback - Completed
+        shell: bash
+        run: |
+          set -e
+
+          curl -sS -f \
+            -X POST \
+            "${RENDER_BASE_URL}/api/worker/jobs/${JOB_ID}/callback" \
+            -H "Content-Type: application/json" \
+            -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
+            -d "{
+              \"status\":\"completed\",
+              \"progress\":100,
+              \"stage\":\"completed\",
+              \"output_url\":\"${OUTPUT_URL}\"
+            }"
+
+          echo "=========================================="
+          echo "WAN2.1 WORKER — SUCCESS"
+          echo "=========================================="
+
+      - name: Callback - Failed
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+
+          ERROR="GitHub Wan2.1 Worker failed."
+
+          curl -sS \
+            -X POST \
+            "${RENDER_BASE_URL}/api/worker/jobs/${JOB_ID}/callback" \
+            -H "Content-Type: application/json" \
+            -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
+            -d "{
+              \"status\":\"failed\",
+              \"progress\":100,
+              \"stage\":\"failed\",
+              \"error\":\"${ERROR}\"
+            }"
