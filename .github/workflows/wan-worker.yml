@@ -1,1185 +1,1079 @@
 name: Wan2.1 T2V Worker
 
 on:
-  workflow_dispatch:
-    inputs:
-      job_id:
-        description: "Render Job ID"
-        required: true
-        type: string
+workflow_dispatch:
+inputs:
+job_id:
+description: "Render Job ID"
+required: true
+type: string
 
-      prompt:
-        description: "Video prompt"
-        required: true
-        type: string
+  prompt:
+    description: "Video prompt"
+    required: true
+    type: string
 
-      aspect_ratio:
-        description: "Aspect ratio"
-        required: true
-        type: string
-        default: "16:9"
+  aspect_ratio:
+    description: "Aspect ratio"
+    required: true
+    type: string
+    default: "16:9"
 
-      duration:
-        description: "Requested duration in seconds"
-        required: true
-        type: string
-        default: "5"
+  duration:
+    description: "Requested duration"
+    required: true
+    type: string
+    default: "5"
 
-  repository_dispatch:
-    types:
-      - ai_video_job
+repository_dispatch:
+types:
+- ai_video_job
 
 permissions:
-  contents: read
+contents: read
 
 jobs:
-  generate:
-    name: Wan2.1 CPU Worker
-    runs-on: ubuntu-24.04
-
-    env:
-      RENDER_BASE_URL: ${{ secrets.RENDER_BASE_URL }}
-      RENDER_CALLBACK_SECRET: ${{ secrets.RENDER_CALLBACK_SECRET }}
-
-    steps:
-
-      # ============================================================
-      # 1. PREPARE JOB
-      # ============================================================
-
-      - name: Prepare job variables
-        id: vars
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
-            JOB_ID="${{ github.event.client_payload.job_id }}"
-            PROMPT="${{ github.event.client_payload.prompt }}"
-            ASPECT_RATIO="${{ github.event.client_payload.aspect_ratio }}"
-            DURATION="${{ github.event.client_payload.duration }}"
-          else
-            JOB_ID="${{ inputs.job_id }}"
-            PROMPT="${{ inputs.prompt }}"
-            ASPECT_RATIO="${{ inputs.aspect_ratio }}"
-            DURATION="${{ inputs.duration }}"
-          fi
-
-          case "$ASPECT_RATIO" in
-            "16:9")
-              SIZE="480*272"
-              ;;
-            "9:16")
-              SIZE="272*480"
-              ;;
-            "1:1")
-              SIZE="320*320"
-              ;;
-            *)
-              echo "Unsupported aspect ratio: $ASPECT_RATIO"
-              exit 1
-              ;;
-          esac
-
-          echo "JOB_ID=$JOB_ID" >> "$GITHUB_ENV"
-          echo "PROMPT=$PROMPT" >> "$GITHUB_ENV"
-          echo "ASPECT_RATIO=$ASPECT_RATIO" >> "$GITHUB_ENV"
-          echo "DURATION=$DURATION" >> "$GITHUB_ENV"
-          echo "SIZE=$SIZE" >> "$GITHUB_ENV"
-
-          # ========================================================
-          # CPU SMOKE TEST
-          #
-          # This is intentionally small.
-          # Once this succeeds we can increase quality/resolution.
-          # ========================================================
-
-          echo "FRAME_NUM=5" >> "$GITHUB_ENV"
-          echo "SAMPLE_STEPS=2" >> "$GITHUB_ENV"
-          echo "GUIDE_SCALE=1.0" >> "$GITHUB_ENV"
-
-          echo "=============================================="
-          echo "Prepared Wan2.1 CPU job"
-          echo "=============================================="
-          echo "Job ID:        $JOB_ID"
-          echo "Prompt:        $PROMPT"
-          echo "Aspect:        $ASPECT_RATIO"
-          echo "Duration:      $DURATION"
-          echo "Size:          $SIZE"
-          echo "Frame number:  5"
-          echo "Sample steps:  2"
-          echo "Guide scale:   1.0"
-          echo "Mode:          CPU SMOKE TEST"
-          echo "=============================================="
-
-      # ============================================================
-      # 2. CALLBACK - STARTING
-      # ============================================================
-
-      - name: Callback - Starting
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          python3 - <<'PY' > /tmp/callback-start.json
-          import json
-          import os
-
-          payload = {
-              "status": "running",
-              "progress": 2,
-              "stage": "starting",
-              "prompt": os.environ["PROMPT"],
-              "aspect_ratio": os.environ["ASPECT_RATIO"],
-              "duration": int(os.environ["DURATION"]),
-          }
-
-          print(json.dumps(payload))
-          PY
-
-          curl -sS -f \
-            -X POST \
-            "${RENDER_BASE_URL}/api/worker/jobs/${JOB_ID}/callback" \
-            -H "Content-Type: application/json" \
-            -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
-            --data-binary @/tmp/callback-start.json
-
-      # ============================================================
-      # 3. CHECKOUT
-      # ============================================================
-
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      # ============================================================
-      # 4. SYSTEM DEPENDENCIES
-      # ============================================================
-
-      - name: Install system dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "=============================================="
-          echo "Checking GitHub runner system tools"
-          echo "=============================================="
-
-          MISSING_PACKAGES=()
-
-          command -v ffmpeg >/dev/null 2>&1 || MISSING_PACKAGES+=("ffmpeg")
-          command -v git >/dev/null 2>&1 || MISSING_PACKAGES+=("git")
-          command -v python3 >/dev/null 2>&1 || MISSING_PACKAGES+=("python3")
-          command -v pip3 >/dev/null 2>&1 || MISSING_PACKAGES+=("python3-pip")
-          command -v curl >/dev/null 2>&1 || MISSING_PACKAGES+=("curl")
-
-          if python3 -m venv --help >/dev/null 2>&1; then
-            echo "python3-venv: available"
-          else
-            MISSING_PACKAGES+=("python3-venv")
-          fi
-
-          if [ "${#MISSING_PACKAGES[@]}" -eq 0 ]; then
-            echo "All required system tools are already available."
-          else
-            echo "Missing packages detected:"
-            printf ' - %s\n' "${MISSING_PACKAGES[@]}"
-
-            sudo apt-get update -qq
-
-            sudo apt-get install -y --no-install-recommends \
-              "${MISSING_PACKAGES[@]}"
-          fi
-
-          echo
-          echo "=============================================="
-          echo "System verification"
-          echo "=============================================="
-
-          ffmpeg -version | head -n 1
-          python3 --version
-          python3 -m pip --version
-          git --version
-          curl --version | head -n 1
-
-          python3 -m venv --help >/dev/null
-
-          echo
-          echo "System dependencies: READY"
-
-      # ============================================================
-      # 5. HARDWARE CHECK
-      # ============================================================
-
-      - name: Check hardware
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "=============================================="
-          echo "Hardware"
-          echo "=============================================="
-
-          echo "CPU(s):"
-          nproc
-
-          echo
-          echo "CPU model:"
-          lscpu | grep -E "Model name|Socket|Core|Thread" | head -n 10 || true
-
-          echo
-          echo "RAM:"
-          free -h
 
-          echo
-          echo "GPU:"
-          if command -v nvidia-smi >/dev/null 2>&1; then
-            nvidia-smi || true
-          else
-            echo "No NVIDIA GPU detected."
-          fi
-
-          echo
-          echo "Worker mode: CPU-compatible Wan2.1"
-
-      # ============================================================
-      # 6. CALLBACK - INSTALLING
-      # ============================================================
-
-      - name: Callback - Installing Wan2.1
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          python3 - <<'PY' > /tmp/callback-installing.json
-          import json
-
-          payload = {
-              "status": "running",
-              "progress": 8,
-              "stage": "installing_wan",
-          }
-
-          print(json.dumps(payload))
-          PY
-
-          curl -sS -f \
-            -X POST \
-            "${RENDER_BASE_URL}/api/worker/jobs/${JOB_ID}/callback" \
-            -H "Content-Type: application/json" \
-            -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
-            --data-binary @/tmp/callback-installing.json
-
-      # ============================================================
-      # 7. CLONE WAN2.1
-      # ============================================================
-
-      - name: Clone Wan2.1
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          rm -rf Wan2.1
-
-          git clone \
-            --depth 1 \
-            https://github.com/Wan-Video/Wan2.1.git \
-            Wan2.1
-
-          cd Wan2.1
-
-          echo "=============================================="
-          echo "Wan2.1 commit"
-          echo "=============================================="
-
-          git rev-parse HEAD
-
-      # ============================================================
-      # 8. PATCH WAN2.1 FOR CPU
-      # ============================================================
-
-      - name: Patch Wan2.1 for CPU
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          cd Wan2.1
-
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-
-          print("==============================================")
-          print("Applying Wan2.1 CPU compatibility patches")
-          print("==============================================")
-
-          # ========================================================
-          # PATCH 1
-          # T5 import-time CUDA device
-          # ========================================================
-
-          t5 = Path("wan/modules/t5.py")
-
-          if not t5.exists():
-              raise SystemExit(
-                  "ERROR: wan/modules/t5.py was not found."
-              )
-
-          t5_text = t5.read_text()
-
-          old_t5 = "device=torch.cuda.current_device()"
-          new_t5 = "device='cpu'"
-
-          if old_t5 in t5_text:
-              t5_text = t5_text.replace(
-                  old_t5,
-                  new_t5,
-                  1
-              )
-
-              t5.write_text(t5_text)
-
-              print("PATCHED: T5 CUDA default -> CPU")
-          else:
-              print(
-                  "INFO: T5 CUDA default already patched "
-                  "or upstream source changed."
-              )
-
-          # ========================================================
-          # PATCH 2
-          # WanT2V device selection
-          # ========================================================
-
-          t2v = Path("wan/text2video.py")
-
-          if not t2v.exists():
-              raise SystemExit(
-                  "ERROR: wan/text2video.py was not found."
-              )
-
-          text = t2v.read_text()
-
-          old_device = (
-              'self.device = torch.device(f"cuda:{device_id}")'
+generate:
+
+name: Wan2.1 CPU Worker
+
+runs-on: ubuntu-24.04
+
+env:
+  RENDER_BASE_URL: ${{ secrets.RENDER_BASE_URL }}
+  RENDER_CALLBACK_SECRET: ${{ secrets.RENDER_CALLBACK_SECRET }}
+
+steps:
+
+  # ==========================================================
+  # 1. PREPARE JOB
+  # ==========================================================
+
+  - name: Prepare job variables
+    shell: bash
+    run: |
+      set -euo pipefail
+
+      if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+        JOB_ID="${{ github.event.client_payload.job_id }}"
+        PROMPT="${{ github.event.client_payload.prompt }}"
+        ASPECT_RATIO="${{ github.event.client_payload.aspect_ratio }}"
+        DURATION="${{ github.event.client_payload.duration }}"
+      else
+        JOB_ID="${{ inputs.job_id }}"
+        PROMPT="${{ inputs.prompt }}"
+        ASPECT_RATIO="${{ inputs.aspect_ratio }}"
+        DURATION="${{ inputs.duration }}"
+      fi
+
+      case "$ASPECT_RATIO" in
+        "16:9")
+          SIZE="480*272"
+          ;;
+        "9:16")
+          SIZE="272*480"
+          ;;
+        "1:1")
+          SIZE="272*272"
+          ;;
+        *)
+          echo "Unsupported aspect ratio: $ASPECT_RATIO"
+          exit 1
+          ;;
+      esac
+
+      echo "JOB_ID=$JOB_ID" >> "$GITHUB_ENV"
+      echo "PROMPT=$PROMPT" >> "$GITHUB_ENV"
+      echo "ASPECT_RATIO=$ASPECT_RATIO" >> "$GITHUB_ENV"
+      echo "DURATION=$DURATION" >> "$GITHUB_ENV"
+      echo "SIZE=$SIZE" >> "$GITHUB_ENV"
+
+      # GOLDEN PROOF SETTINGS
+      echo "FRAME_NUM=5" >> "$GITHUB_ENV"
+      echo "SAMPLE_STEPS=2" >> "$GITHUB_ENV"
+      echo "GUIDE_SCALE=1.0" >> "$GITHUB_ENV"
+
+      echo "=============================================="
+      echo "GOLDEN WAN2.1 CPU JOB"
+      echo "=============================================="
+      echo "Job:       $JOB_ID"
+      echo "Prompt:    $PROMPT"
+      echo "Aspect:    $ASPECT_RATIO"
+      echo "Duration:  $DURATION"
+      echo "Size:      $SIZE"
+      echo "Frames:    5"
+      echo "Steps:     2"
+      echo "Guide:     1.0"
+      echo "=============================================="
+
+  # ==========================================================
+  # 2. CALLBACK - STARTING
+  # ==========================================================
+
+  - name: Callback - Starting
+    shell: bash
+    run: |
+      set -euo pipefail
+
+      python3 - <<'PY' > /tmp/callback.json
+      import json
+      import os
+
+      print(json.dumps({
+          "status": "running",
+          "progress": 2,
+          "stage": "starting"
+      }))
+      PY
+
+      curl -sS -f \
+        --retry 3 \
+        --retry-delay 2 \
+        -X POST \
+        "${RENDER_BASE_URL}/api/worker/jobs/${JOB_ID}/callback" \
+        -H "Content-Type: application/json" \
+        -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
+        --data-binary @/tmp/callback.json
+
+  # ==========================================================
+  # 3. CHECKOUT
+  # ==========================================================
+
+  - name: Checkout repository
+    uses: actions/checkout@v4
+
+  # ==========================================================
+  # 4. SYSTEM
+  # ==========================================================
+
+  - name: Install system dependencies
+    shell: bash
+    run: |
+      set -euo pipefail
+
+      sudo apt-get update -qq
+
+      sudo apt-get install -y --no-install-recommends \
+        ffmpeg \
+        python3 \
+        python3-pip \
+        python3-venv \
+        curl \
+        git
+
+      echo
+      echo "System:"
+      python3 --version
+      ffmpeg -version | head -n 1
+      git --version
+
+  # ==========================================================
+  # 5. HARDWARE
+  # ==========================================================
+
+  - name: Hardware check
+    shell: bash
+    run: |
+      set -euo pipefail
+
+      echo "=============================================="
+      echo "HARDWARE"
+      echo "=============================================="
+
+      echo "CPU:"
+      nproc
+
+      echo
+      echo "RAM:"
+      free -h
+
+      echo
+      echo "GPU:"
+      if command -v nvidia-smi >/dev/null 2>&1; then
+        nvidia-smi || true
+      else
+        echo "No NVIDIA GPU detected."
+      fi
+
+  # ==========================================================
+  # 6. CALLBACK - INSTALLING
+  # ==========================================================
+
+  - name: Callback - Installing
+    shell: bash
+    run: |
+      set -euo pipefail
+
+      python3 - <<'PY' > /tmp/callback.json
+      import json
+
+      print(json.dumps({
+          "status": "running",
+          "progress": 7,
+          "stage": "installing"
+      }))
+      PY
+
+      curl -sS -f \
+        --retry 3 \
+        --retry-delay 2 \
+        -X POST \
+        "${RENDER_BASE_URL}/api/worker/jobs/${JOB_ID}/callback" \
+        -H "Content-Type: application/json" \
+        -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
+        --data-binary @/tmp/callback.json
+
+  # ==========================================================
+  # 7. CLONE WAN2.1
+  # ==========================================================
+
+  - name: Clone Wan2.1
+    shell: bash
+    run: |
+      set -euo pipefail
+
+      rm -rf Wan2.1
+
+      git clone \
+        --depth 1 \
+        https://github.com/Wan-Video/Wan2.1.git \
+        Wan2.1
+
+      cd Wan2.1
+
+      echo "Wan commit:"
+      git rev-parse HEAD
+
+  # ==========================================================
+  # 8. GOLDEN CPU PATCH
+  #
+  # IMPORTANT:
+  # We do NOT patch model.py.
+  #
+  # The previous failure happened because the patch searched
+  # for a fragile exact block inside model.py.
+  #
+  # The real dtype problem occurs when T5 produces BF16
+  # context and WanModel has FLOAT32 weights on CPU.
+  #
+  # Therefore we normalize context tensors to FLOAT32 directly
+  # inside text2video.py.
+  # ==========================================================
+
+  - name: Apply golden CPU compatibility patch
+    shell: bash
+    run: |
+      set -euo pipefail
+
+      cd Wan2.1
+
+      python3 - <<'PY'
+      from pathlib import Path
+
+      print("==============================================")
+      print("GOLDEN CPU PATCH")
+      print("==============================================")
+
+      # ------------------------------------------------------
+      # T5
+      # ------------------------------------------------------
+
+      t5 = Path("wan/modules/t5.py")
+
+      if not t5.exists():
+          raise SystemExit("Missing wan/modules/t5.py")
+
+      t5_text = t5.read_text()
+
+      old = "device=torch.cuda.current_device()"
+      new = "device='cpu'"
+
+      if old in t5_text:
+          t5_text = t5_text.replace(old, new, 1)
+          t5.write_text(t5_text)
+          print("OK: T5 CUDA default removed")
+      else:
+          print("OK: T5 CUDA default already absent")
+
+      # ------------------------------------------------------
+      # text2video
+      # ------------------------------------------------------
+
+      t2v = Path("wan/text2video.py")
+
+      if not t2v.exists():
+          raise SystemExit("Missing wan/text2video.py")
+
+      text = t2v.read_text()
+
+      # ------------------------------------------------------
+      # CPU DEVICE
+      # ------------------------------------------------------
+
+      old_device = 'self.device = torch.device(f"cuda:{device_id}")'
+
+      new_device = '''self.device = torch.device(
+          "cuda" if torch.cuda.is_available() else "cpu"
+      )'''
+
+      if old_device in text:
+          text = text.replace(old_device, new_device, 1)
+          print("OK: CPU device selection patched")
+      else:
+          print("OK: device selection already patched")
+
+      # ------------------------------------------------------
+      # CPU SAFE AUTOCAST
+      # ------------------------------------------------------
+
+      old_autocast = (
+          "with amp.autocast(dtype=self.param_dtype), "
+          "torch.no_grad(), no_sync():"
+      )
+
+      new_autocast = '''with torch.autocast(
+              device_type=self.device.type,
+              dtype=self.param_dtype,
+              enabled=(self.device.type == "cuda")
+          ), torch.no_grad(), no_sync():'''
+
+      if old_autocast in text:
+          text = text.replace(old_autocast, new_autocast, 1)
+          print("OK: CPU autocast disabled")
+      else:
+          print("OK: autocast already patched")
+
+      # ------------------------------------------------------
+      # GOLDEN FIX:
+      #
+      # Convert T5 context tensors to the same dtype used by
+      # the CPU Wan model.
+      #
+      # This directly fixes:
+      #
+      # BFloat16 and Float
+      #
+      # ------------------------------------------------------
+
+      old_context = '''context = [t.to(self.device) for t in context]
+    context_null = [t.to(self.device) for t in context_null]'''
+
+      new_context = '''context = [
+        t.to(
+            device=self.device,
+            dtype=torch.float32
+        )
+        for t in context
+    ]
+
+    context_null = [
+        t.to(
+            device=self.device,
+            dtype=torch.float32
+        )
+        for t in context_null
+    ]'''
+
+      if old_context in text:
+
+          text = text.replace(
+              old_context,
+              new_context,
+              1
           )
 
-          new_device = '''self.device = torch.device(
-              "cuda" if torch.cuda.is_available() else "cpu"
-          )'''
-
-          if old_device in text:
-              text = text.replace(
-                  old_device,
-                  new_device,
-                  1
-              )
-
-              print("PATCHED: WanT2V device selection")
-          else:
-              print(
-                  "INFO: WanT2V device selection already patched "
-                  "or upstream source changed."
-              )
-
-          # ========================================================
-          # PATCH 3
-          # CPU-safe autocast
-          #
-          # Important:
-          # Do NOT use CUDA autocast on CPU.
-          # CPU path is explicitly disabled here.
-          # ========================================================
-
-          old_autocast = (
-              "with amp.autocast(dtype=self.param_dtype), "
-              "torch.no_grad(), no_sync():"
+          print(
+              "OK: T5 context BF16 -> FLOAT32"
           )
 
-          new_autocast = '''with torch.autocast(
-                  device_type=self.device.type,
-                  dtype=self.param_dtype,
-                  enabled=(self.device.type == "cuda")
-              ), torch.no_grad(), no_sync():'''
+      elif (
+          "dtype=torch.float32" in text
+          and "context_null" in text
+      ):
 
-          if old_autocast in text:
-              text = text.replace(
-                  old_autocast,
-                  new_autocast,
-                  1
-              )
-
-              print("PATCHED: CPU-safe autocast")
-          else:
-              print(
-                  "INFO: autocast already patched "
-                  "or upstream source changed."
-              )
-
-          # ========================================================
-          # PATCH 4
-          # CPU-safe empty_cache
-          # ========================================================
-
-          empty_cache_pattern = re.compile(
-              r"^(?P<indent>[ \t]*)"
-              r"torch\.cuda\.empty_cache\(\)"
-              r"[ \t]*$",
-              re.MULTILINE
+          print(
+              "OK: context FLOAT32 conversion already present"
           )
 
-          def replace_empty_cache(match):
-              indent = match.group("indent")
+      else:
 
-              return (
-                  f"{indent}if torch.cuda.is_available():\n"
-                  f"{indent}    torch.cuda.empty_cache()"
-              )
-
-          text, empty_count = empty_cache_pattern.subn(
-              replace_empty_cache,
-              text
+          raise SystemExit(
+              "ERROR: Could not locate context conversion."
           )
 
-          if empty_count:
-              print(
-                  "PATCHED: torch.cuda.empty_cache() "
-                  f"({empty_count} occurrence(s))"
-              )
+      # ------------------------------------------------------
+      # CUDA CACHE
+      # ------------------------------------------------------
 
-          # ========================================================
-          # PATCH 5
-          # CPU-safe synchronize
-          # ========================================================
+      old_cache = "torch.cuda.empty_cache()"
 
-          synchronize_pattern = re.compile(
-              r"^(?P<indent>[ \t]*)"
-              r"torch\.cuda\.synchronize\(\)"
-              r"[ \t]*$",
-              re.MULTILINE
-          )
+      if old_cache in text:
 
-          def replace_synchronize(match):
-              indent = match.group("indent")
+          lines = text.splitlines()
 
-              return (
-                  f"{indent}if torch.cuda.is_available():\n"
-                  f"{indent}    torch.cuda.synchronize()"
-              )
+          output = []
 
-          text, sync_count = synchronize_pattern.subn(
-              replace_synchronize,
-              text
-          )
+          for line in lines:
 
-          if sync_count:
-              print(
-                  "PATCHED: torch.cuda.synchronize() "
-                  f"({sync_count} occurrence(s))"
-              )
+              stripped = line.strip()
 
-          t2v.write_text(text)
+              if stripped == old_cache:
 
-          # ========================================================
-          # PATCH 6
-          # CRITICAL BF16 -> FLOAT32 CONTEXT FIX
-          #
-          # The T5 encoder produces BF16 context.
-          # WanModel.text_embedding is loaded with Float32 weights
-          # on the CPU path.
-          #
-          # Therefore the CPU path must explicitly convert the
-          # context tensor to float32 before text_embedding.
-          # ========================================================
+                  indent = line[:len(line)-len(line.lstrip())]
 
-          model_file = Path("wan/modules/model.py")
-
-          if not model_file.exists():
-              raise SystemExit(
-                  "ERROR: wan/modules/model.py was not found."
-              )
-
-          model_text = model_file.read_text()
-
-          old_context = '''context = self.text_embedding(
-            torch.stack([torch.cat(
-                [u, u.new_zeros(self.text_len - u.size(0), u.size(1))])
-                for u in context]))'''
-
-          new_context = '''context = self.text_embedding(
-            torch.stack([torch.cat(
-                [u, u.new_zeros(self.text_len - u.size(0), u.size(1))])
-                for u in context]).float())'''
-
-          if old_context in model_text:
-              model_text = model_text.replace(
-                  old_context,
-                  new_context,
-                  1
-              )
-
-              print(
-                  "PATCHED: WanModel text context "
-                  "BF16 -> FLOAT32"
-              )
-          else:
-              # More tolerant replacement for formatting changes.
-              old_fragment = (
-                  "context = self.text_embedding("
-              )
-
-              marker = (
-                  "context_lens = None"
-              )
-
-              start = model_text.find(old_fragment)
-              end = model_text.find(marker, start)
-
-              if start != -1 and end != -1:
-                  block = model_text[start:end]
-
-                  if ").float())" not in block:
-                      block = block.replace(
-                          "]))",
-                          "])).float())",
-                          1
-                      )
-
-                      model_text = (
-                          model_text[:start]
-                          + block
-                          + model_text[end:]
-                      )
-
-                      print(
-                          "PATCHED: WanModel context "
-                          "using tolerant BF16 -> FLOAT32 patch"
-                      )
-                  else:
-                      print(
-                          "INFO: WanModel context "
-                          "already converted to FLOAT32."
-                      )
-              else:
-                  raise SystemExit(
-                      "ERROR: Could not locate "
-                      "WanModel.text_embedding context block."
+                  output.append(
+                      indent +
+                      "if torch.cuda.is_available():"
                   )
 
-          model_file.write_text(model_text)
-
-          # ========================================================
-          # FINAL CHECKS
-          # ========================================================
-
-          t5_text = t5.read_text()
-          t2v_text = t2v.read_text()
-          model_text = model_file.read_text()
-
-          if "device=torch.cuda.current_device()" in t5_text:
-              raise SystemExit(
-                  "CPU PATCH FAILED: T5 still forces CUDA"
-              )
-
-          if (
-              'self.device = torch.device(f"cuda:{device_id}")'
-              in t2v_text
-          ):
-              raise SystemExit(
-                  "CPU PATCH FAILED: WanT2V still forces CUDA"
-              )
-
-          if "context = self.text_embedding(" not in model_text:
-              raise SystemExit(
-                  "CPU PATCH FAILED: text_embedding block missing"
-              )
-
-          print()
-          print("==============================================")
-          print("CPU PATCH VERIFICATION")
-          print("==============================================")
-
-          print("T5 CUDA removal: OK")
-          print("WanT2V CPU device: OK")
-          print("CPU autocast protection: OK")
-          print("BF16 -> FLOAT32 context fix: OK")
-          print("CUDA cache protections: OK")
-
-          print()
-          print("Relevant model context section:")
-
-          lines = model_text.splitlines()
-
-          for number, line in enumerate(lines, start=1):
-              if (
-                  "context_lens = None" in line
-                  or "context = self.text_embedding" in line
-                  or ".float())" in line
-              ):
-                  print(f"{number}: {line}")
-
-          print()
-          print("==============================================")
-          print("Wan2.1 CPU patches: PASSED")
-          print("==============================================")
-          PY
-
-          echo
-          echo "Checking patched Python files..."
-
-          python3 -m py_compile \
-            wan/modules/t5.py \
-            wan/text2video.py \
-            wan/modules/model.py
-
-          echo
-          echo "Python syntax check: PASSED"
-
-      # ============================================================
-      # 9. CREATE PYTHON ENVIRONMENT
-      # ============================================================
-
-      - name: Create Python environment
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          cd Wan2.1
-
-          python3 -m venv .venv
-
-          source .venv/bin/activate
-
-          python -m pip install --upgrade \
-            pip \
-            setuptools \
-            wheel
-
-          echo "Python:"
-          python --version
-
-          echo "Pip:"
-          pip --version
-
-      # ============================================================
-      # 10. INSTALL CPU PYTORCH
-      # ============================================================
-
-      - name: Install CPU PyTorch
-        shell: bash
-        run: |
-          set -euo pipefail
+                  output.append(
+                      indent +
+                      "    torch.cuda.empty_cache()"
+                  )
 
-          cd Wan2.1
+              else:
 
-          source .venv/bin/activate
+                  output.append(line)
 
-          python -m pip install \
-            --no-cache-dir \
-            torch \
-            torchvision \
-            --index-url https://download.pytorch.org/whl/cpu
+          text = "\n".join(output) + "\n"
 
-          python - <<'PY'
-          import torch
+          print(
+              "OK: CUDA cache protection"
+          )
 
-          print("==============================================")
-          print("PyTorch CPU verification")
-          print("==============================================")
+      # ------------------------------------------------------
+      # CUDA SYNC
+      # ------------------------------------------------------
 
-          print("Torch:", torch.__version__)
-          print("CUDA available:", torch.cuda.is_available())
-          print("CUDA version:", torch.version.cuda)
+      old_sync = "torch.cuda.synchronize()"
 
-          if torch.cuda.is_available():
-              raise RuntimeError(
-                  "CPU worker unexpectedly reports CUDA available."
-              )
+      if old_sync in text:
 
-          print("CPU PyTorch: OK")
-          PY
+          lines = text.splitlines()
 
-      # ============================================================
-      # 11. INSTALL WAN2.1 DEPENDENCIES
-      # ============================================================
+          output = []
 
-      - name: Install Wan2.1 dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
+          for line in lines:
 
-          cd Wan2.1
+              stripped = line.strip()
 
-          source .venv/bin/activate
+              if stripped == old_sync:
 
-          python -m pip install \
-            --no-cache-dir \
-            einops \
-            diffusers \
-            transformers \
-            tokenizers \
-            accelerate \
-            tqdm \
-            imageio \
-            easydict \
-            ftfy \
-            dashscope \
-            imageio-ffmpeg \
-            opencv-python \
-            "numpy>=1.23.5,<2"
+                  indent = line[:len(line)-len(line.lstrip())]
 
-          echo "=============================================="
-          echo "Wan2.1 dependencies installed"
-          echo "=============================================="
+                  output.append(
+                      indent +
+                      "if torch.cuda.is_available():"
+                  )
 
-      # ============================================================
-      # 12. HUGGING FACE CLI
-      # ============================================================
+                  output.append(
+                      indent +
+                      "    torch.cuda.synchronize()"
+                  )
 
-      - name: Install Hugging Face CLI
-        shell: bash
-        run: |
-          set -euo pipefail
+              else:
 
-          cd Wan2.1
+                  output.append(line)
 
-          source .venv/bin/activate
+          text = "\n".join(output) + "\n"
 
-          python -m pip install \
-            --no-cache-dir \
-            "huggingface_hub[cli]"
+          print(
+              "OK: CUDA synchronize protection"
+          )
 
-          hf --help >/dev/null
+      t2v.write_text(text)
 
-          echo "Hugging Face CLI: OK"
+      # ------------------------------------------------------
+      # VERIFY
+      # ------------------------------------------------------
 
-      # ============================================================
-      # 13. VERIFY PATCHED WAN2.1
-      # ============================================================
+      print()
+      print("==============================================")
+      print("VERIFYING PATCH")
+      print("==============================================")
 
-      - name: Verify patched Wan2.1
-        shell: bash
-        run: |
-          set -euo pipefail
+      t5_text = t5.read_text()
+      t2v_text = t2v.read_text()
 
-          cd Wan2.1
+      if "device=torch.cuda.current_device()" in t5_text:
+          raise SystemExit(
+              "FAILED: T5 still uses CUDA default"
+          )
 
-          source .venv/bin/activate
+      if (
+          'self.device = torch.device(f"cuda:{device_id}")'
+          in t2v_text
+      ):
+          raise SystemExit(
+              "FAILED: WanT2V still forces CUDA"
+          )
 
-          python - <<'PY'
-          import sys
-          import torch
+      if "dtype=torch.float32" not in t2v_text:
+          raise SystemExit(
+              "FAILED: FLOAT32 context conversion missing"
+          )
 
-          sys.path.insert(0, ".")
+      print("T5 CPU:                 PASS")
+      print("WanT2V CPU device:      PASS")
+      print("CPU autocast:           PASS")
+      print("Context FLOAT32:        PASS")
+      print("CUDA cache protection:  PASS")
+      print("CUDA sync protection:   PASS")
 
-          print("==============================================")
-          print("Patched Wan2.1 verification")
-          print("==============================================")
+      print()
+      print("==============================================")
+      print("GOLDEN CPU PATCH PASSED")
+      print("==============================================")
+      PY
 
-          print("Torch:", torch.__version__)
-          print("CUDA available:", torch.cuda.is_available())
+      echo
+      echo "Python syntax verification..."
+
+      python3 -m py_compile \
+        wan/modules/t5.py \
+        wan/text2video.py
+
+      echo
+      echo "SYNTAX: PASS"
 
-          if torch.cuda.is_available():
-              raise RuntimeError(
-                  "CUDA is unexpectedly available."
-              )
+  # ==========================================================
+  # 9. PYTHON ENVIRONMENT
+  # ==========================================================
 
-          import wan
+  - name: Create Python environment
+    shell: bash
+    run: |
+      set -euo pipefail
 
-          print("Wan import: OK")
+      cd Wan2.1
 
-          from wan.modules.t5 import T5EncoderModel
+      python3 -m venv .venv
 
-          print("T5 import: OK")
+      source .venv/bin/activate
 
-          from wan.text2video import WanT2V
+      python -m pip install --upgrade \
+        pip \
+        setuptools \
+        wheel
 
-          print("WanT2V import: OK")
+  # ==========================================================
+  # 10. CPU PYTORCH
+  # ==========================================================
 
-          from wan.modules.model import WanModel
+  - name: Install CPU PyTorch
+    shell: bash
+    run: |
+      set -euo pipefail
 
-          print("WanModel import: OK")
+      cd Wan2.1
 
-          print("CPU compatibility import test: PASSED")
-          PY
+      source .venv/bin/activate
 
-      # ============================================================
-      # 14. CALLBACK - DOWNLOADING MODEL
-      # ============================================================
+      python -m pip install \
+        --no-cache-dir \
+        torch \
+        torchvision \
+        --index-url https://download.pytorch.org/whl/cpu
 
-      - name: Callback - Downloading model
-        shell: bash
-        run: |
-          set -euo pipefail
+      python - <<'PY'
+      import torch
 
-          python3 - <<'PY' > /tmp/callback-downloading.json
-          import json
+      print("==============================================")
+      print("PYTORCH")
+      print("==============================================")
 
-          payload = {
-              "status": "running",
-              "progress": 15,
-              "stage": "downloading_model",
-          }
+      print("Torch:", torch.__version__)
+      print("CUDA available:", torch.cuda.is_available())
 
-          print(json.dumps(payload))
-          PY
+      if torch.cuda.is_available():
+          raise RuntimeError(
+              "Unexpected CUDA on CPU worker"
+          )
 
-          curl -sS -f \
-            -X POST \
-            "${RENDER_BASE_URL}/api/worker/jobs/${JOB_ID}/callback" \
-            -H "Content-Type: application/json" \
-            -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
-            --data-binary @/tmp/callback-downloading.json
+      print("CPU PyTorch: PASS")
+      PY
 
-      # ============================================================
-      # 15. DOWNLOAD MODEL
-      # ============================================================
+  # ==========================================================
+  # 11. DEPENDENCIES
+  # ==========================================================
 
-      - name: Download Wan2.1 T2V 1.3B
-        shell: bash
-        run: |
-          set -euo pipefail
+  - name: Install Wan2.1 dependencies
+    shell: bash
+    run: |
+      set -euo pipefail
 
-          cd Wan2.1
+      cd Wan2.1
 
-          source .venv/bin/activate
+      source .venv/bin/activate
 
-          rm -rf Wan2.1-T2V-1.3B
+      python -m pip install \
+        --no-cache-dir \
+        einops \
+        diffusers \
+        transformers \
+        tokenizers \
+        accelerate \
+        tqdm \
+        imageio \
+        easydict \
+        ftfy \
+        dashscope \
+        imageio-ffmpeg \
+        opencv-python \
+        "numpy>=1.23.5,<2"
 
-          hf download \
-            Wan-AI/Wan2.1-T2V-1.3B \
-            --local-dir ./Wan2.1-T2V-1.3B
+  # ==========================================================
+  # 12. HUGGINGFACE
+  # ==========================================================
 
-          echo "=============================================="
-          echo "Model download completed"
-          echo "=============================================="
+  - name: Install Hugging Face CLI
+    shell: bash
+    run: |
+      set -euo pipefail
 
-          du -sh ./Wan2.1-T2V-1.3B
+      cd Wan2.1
 
-      # ============================================================
-      # 16. CALLBACK - GENERATING
-      # ============================================================
+      source .venv/bin/activate
 
-      - name: Callback - Generating
-        shell: bash
-        run: |
-          set -euo pipefail
+      python -m pip install \
+        --no-cache-dir \
+        "huggingface_hub[cli]"
 
-          python3 - <<'PY' > /tmp/callback-generating.json
-          import json
+      hf --help >/dev/null
 
-          payload = {
-              "status": "running",
-              "progress": 30,
-              "stage": "generating",
-          }
+  # ==========================================================
+  # 13. IMPORT TEST
+  # ==========================================================
 
-          print(json.dumps(payload))
-          PY
+  - name: Verify Wan2.1 imports
+    shell: bash
+    run: |
+      set -euo pipefail
 
-          curl -sS -f \
-            -X POST \
-            "${RENDER_BASE_URL}/api/worker/jobs/${JOB_ID}/callback" \
-            -H "Content-Type: application/json" \
-            -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
-            --data-binary @/tmp/callback-generating.json
+      cd Wan2.1
 
-      # ============================================================
-      # 17. MEMORY SAFETY
-      # ============================================================
+      source .venv/bin/activate
 
-      - name: Configure memory safety for CPU inference
-        shell: bash
-        run: |
-          set -euo pipefail
+      python - <<'PY'
+      import sys
+      import torch
 
-          echo "=============================================="
-          echo "Memory before CPU inference"
-          echo "=============================================="
+      sys.path.insert(0, ".")
 
-          free -h
+      print("==============================================")
+      print("WAN2.1 IMPORT TEST")
+      print("==============================================")
 
-          echo
-          echo "Disk:"
-          df -h /
+      print("Torch:", torch.__version__)
+      print("CUDA:", torch.cuda.is_available())
 
-          echo
-          echo "Existing swap:"
-          swapon --show || true
+      import wan
 
-          if swapon --show --noheadings | grep -q .; then
-            echo
-            echo "Swap already exists."
-          else
-            echo
-            echo "Creating 8 GB swap file..."
+      print("wan import: PASS")
 
-            sudo fallocate -l 8G /swapfile
-            sudo chmod 600 /swapfile
-            sudo mkswap /swapfile
-            sudo swapon /swapfile
+      from wan.modules.t5 import T5EncoderModel
 
-            echo
-            echo "Swap enabled."
-          fi
+      print("T5 import: PASS")
 
-          echo
-          echo "=============================================="
-          echo "Memory after swap configuration"
-          echo "=============================================="
+      from wan.text2video import WanT2V
 
-          free -h
+      print("WanT2V import: PASS")
 
-          echo
-          echo "Swap:"
-          swapon --show || true
+      print("IMPORT TEST: PASS")
+      PY
 
-          echo
-          echo "Memory safety: READY"
-
-      # ============================================================
-      # 18. GENERATE CPU PROOF VIDEO
-      # ============================================================
-
-      - name: Generate Wan2.1 CPU proof video
-        shell: bash
-        run: |
-          set -euo pipefail
+  # ==========================================================
+  # 14. CALLBACK - MODEL
+  # ==========================================================
 
-          cd Wan2.1
-
-          source .venv/bin/activate
-
-          export OMP_NUM_THREADS=2
-          export MKL_NUM_THREADS=2
-          export TOKENIZERS_PARALLELISM=false
-
-          FINAL_VIDEO="/tmp/${JOB_ID}.mp4"
-
-          echo "=============================================="
-          echo "Wan2.1 CPU generation"
-          echo "=============================================="
-          echo "Job:          ${JOB_ID}"
-          echo "Prompt:       ${PROMPT}"
-          echo "Aspect:       ${ASPECT_RATIO}"
-          echo "Size:         ${SIZE}"
-          echo "Frames:       ${FRAME_NUM}"
-          echo "Steps:        ${SAMPLE_STEPS}"
-          echo "Guide scale:  ${GUIDE_SCALE}"
-          echo "Mode:         CPU"
-          echo "Offload:      True"
-          echo "T5 CPU:       True"
-          echo "=============================================="
-
-          echo
-          echo "Memory immediately before generation:"
-          free -h
-
-          echo
-          echo "Swap immediately before generation:"
-          swapon --show || true
-
-          echo
-          echo "Starting Wan2.1..."
-
-          python -u generate.py \
-            --task t2v-1.3B \
-            --size "$SIZE" \
-            --ckpt_dir ./Wan2.1-T2V-1.3B \
-            --frame_num "$FRAME_NUM" \
-            --sample_steps "$SAMPLE_STEPS" \
-            --sample_shift 8 \
-            --sample_guide_scale "$GUIDE_SCALE" \
-            --offload_model True \
-            --t5_cpu \
-            --prompt "$PROMPT" \
-            --save_file "$FINAL_VIDEO"
-
-          if [ ! -f "$FINAL_VIDEO" ]; then
-            echo "Generation completed but MP4 was not created."
-            exit 1
-          fi
-
-          echo
-          echo "=============================================="
-          echo "Generated file"
-          echo "=============================================="
-
-          ls -lh "$FINAL_VIDEO"
-
-          echo
-          echo "=============================================="
-          echo "Video information"
-          echo "=============================================="
-
-          ffprobe \
-            -v error \
-            -show_entries \
-            format=duration,size \
-            -show_entries \
-            stream=width,height,r_frame_rate \
-            -of default=noprint_wrappers=1 \
-            "$FINAL_VIDEO"
-
-          echo "FINAL_VIDEO=$FINAL_VIDEO" >> "$GITHUB_ENV"
-
-      # ============================================================
-      # 19. INSPECT FINAL VIDEO
-      # ============================================================
-
-      - name: Inspect final video
-        if: success()
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if [ ! -f "${FINAL_VIDEO}" ]; then
-            echo "Final video missing."
-            exit 1
-          fi
-
-          echo "=============================================="
-          echo "Final video inspection"
-          echo "=============================================="
-
-          ls -lh "${FINAL_VIDEO}"
-
-          ffprobe \
-            -v error \
-            -show_entries \
-            format=duration \
-            -show_entries \
-            stream=codec_name,width,height,r_frame_rate \
-            -of default=noprint_wrappers=1 \
-            "${FINAL_VIDEO}"
-
-      # ============================================================
-      # 20. CALLBACK - UPLOADING
-      # ============================================================
-
-      - name: Callback - Uploading
-        if: success()
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          python3 - <<'PY' > /tmp/callback-uploading.json
-          import json
-
-          payload = {
-              "status": "running",
-              "progress": 80,
-              "stage": "uploading",
-          }
-
-          print(json.dumps(payload))
-          PY
-
-          curl -sS -f \
-            -X POST \
-            "${RENDER_BASE_URL}/api/worker/jobs/${JOB_ID}/callback" \
-            -H "Content-Type: application/json" \
-            -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
-            --data-binary @/tmp/callback-uploading.json
-
-      # ============================================================
-      # 21. UPLOAD VIDEO
-      # ============================================================
-
-      - name: Upload video to Render
-        if: success()
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if [ ! -f "${FINAL_VIDEO}" ]; then
-            echo "FINAL_VIDEO does not exist."
-            exit 1
-          fi
-
-          echo "Uploading:"
-          ls -lh "${FINAL_VIDEO}"
-
-          curl -sS -f \
-            --retry 3 \
-            --retry-delay 5 \
-            -X POST \
-            "${RENDER_BASE_URL}/api/worker/jobs/${JOB_ID}/upload" \
-            -H "Content-Type: video/mp4" \
-            -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
-            --data-binary "@${FINAL_VIDEO}"
-
-          echo
-          echo "Video uploaded successfully."
-
-      # ============================================================
-      # 22. CALLBACK - COMPLETED
-      # ============================================================
-
-      - name: Callback - Completed
-        if: success()
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          python3 - <<'PY' > /tmp/completed.json
-          import json
-          import os
-
-          payload = {
-              "status": "completed",
-              "progress": 100,
-              "stage": "completed",
-              "output_url": (
-                  os.environ["RENDER_BASE_URL"]
-                  + "/api/jobs/"
-                  + os.environ["JOB_ID"]
-                  + "/video"
-              ),
-          }
-
-          print(json.dumps(payload))
-          PY
-
-          echo "Completion callback:"
-          cat /tmp/completed.json
-
-          curl -sS -f \
-            -X POST \
-            "${RENDER_BASE_URL}/api/worker/jobs/${JOB_ID}/callback" \
-            -H "Content-Type: application/json" \
-            -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
-            --data-binary @/tmp/completed.json
-
-      # ============================================================
-      # 23. CALLBACK - FAILED
-      # ============================================================
-
-      - name: Callback - Failed
-        if: failure()
-        shell: bash
-        run: |
-          set +e
-
-          python3 - <<'PY' > /tmp/failed.json
-          import json
-
-          payload = {
-              "status": "failed",
-              "progress": 0,
-              "stage": "failed",
-              "error": "GitHub Actions Wan2.1 worker failed.",
-          }
-
-          print(json.dumps(payload))
-          PY
-
-          echo "Failure callback:"
-          cat /tmp/failed.json
-
-          curl -sS \
-            -X POST \
-            "${RENDER_BASE_URL}/api/worker/jobs/${JOB_ID}/callback" \
-            -H "Content-Type: application/json" \
-            -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
-            --data-binary @/tmp/failed.json \
-            || true
+  - name: Callback - Model
+    shell: bash
+    run: |
+      set -euo pipefail
+
+      python3 - <<'PY' > /tmp/callback.json
+      import json
+
+      print(json.dumps({
+          "status": "running",
+          "progress": 15,
+          "stage": "downloading_model"
+      }))
+      PY
+
+      curl -sS -f \
+        --retry 3 \
+        --retry-delay 2 \
+        -X POST \
+        "${RENDER_BASE_URL}/api/worker/jobs/${JOB_ID}/callback" \
+        -H "Content-Type: application/json" \
+        -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
+        --data-binary @/tmp/callback.json
+
+  # ==========================================================
+  # 15. DOWNLOAD MODEL
+  # ==========================================================
+
+  - name: Download Wan2.1 T2V 1.3B
+    shell: bash
+    run: |
+      set -euo pipefail
+
+      cd Wan2.1
+
+      source .venv/bin/activate
+
+      if [ -d "Wan2.1-T2V-1.3B" ]; then
+        echo "Model directory already exists."
+      else
+
+        hf download \
+          Wan-AI/Wan2.1-T2V-1.3B \
+          --local-dir ./Wan2.1-T2V-1.3B
+
+      fi
+
+      echo
+      echo "Model size:"
+      du -sh ./Wan2.1-T2V-1.3B
+
+  # ==========================================================
+  # 16. MEMORY SAFETY
+  # ==========================================================
+
+  - name: Configure CPU memory safety
+    shell: bash
+    run: |
+      set -euo pipefail
+
+      echo "=============================================="
+      echo "MEMORY BEFORE SWAP"
+      echo "=============================================="
+
+      free -h
+
+      echo
+      swapon --show || true
+
+      if ! swapon --show --noheadings | grep -q .; then
+
+        echo
+        echo "Creating 12 GB swap..."
+
+        sudo fallocate -l 12G /swapfile
+
+        sudo chmod 600 /swapfile
+
+        sudo mkswap /swapfile
+
+        sudo swapon /swapfile
+
+      else
+
+        echo "Swap already available."
+
+      fi
+
+      echo
+      echo "=============================================="
+      echo "MEMORY AFTER SWAP"
+      echo "=============================================="
+
+      free -h
+
+      echo
+      echo "Swap:"
+      swapon --show || true
+
+  # ==========================================================
+  # 17. CALLBACK - GENERATING
+  # ==========================================================
+
+  - name: Callback - Generating
+    shell: bash
+    run: |
+      set -euo pipefail
+
+      python3 - <<'PY' > /tmp/callback.json
+      import json
+
+      print(json.dumps({
+          "status": "running",
+          "progress": 30,
+          "stage": "generating"
+      }))
+      PY
+
+      curl -sS -f \
+        --retry 3 \
+        --retry-delay 2 \
+        -X POST \
+        "${RENDER_BASE_URL}/api/worker/jobs/${JOB_ID}/callback" \
+        -H "Content-Type: application/json" \
+        -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
+        --data-binary @/tmp/callback.json
+
+  # ==========================================================
+  # 18. GENERATION
+  # ==========================================================
+
+  - name: Generate Wan2.1 CPU proof video
+    shell: bash
+    run: |
+      set -euo pipefail
+
+      cd Wan2.1
+
+      source .venv/bin/activate
+
+      export OMP_NUM_THREADS=4
+      export MKL_NUM_THREADS=4
+      export TOKENIZERS_PARALLELISM=false
+
+      FINAL_VIDEO="/tmp/${JOB_ID}.mp4"
+
+      echo "=============================================="
+      echo "GOLDEN WAN2.1 CPU GENERATION"
+      echo "=============================================="
+
+      echo "Prompt: ${PROMPT}"
+      echo "Size:   ${SIZE}"
+      echo "Frames: ${FRAME_NUM}"
+      echo "Steps:  ${SAMPLE_STEPS}"
+      echo "Guide:  ${GUIDE_SCALE}"
+
+      echo
+      echo "Memory:"
+      free -h
+
+      echo
+      echo "Starting generation..."
+
+      set +e
+
+      python generate.py \
+        --task t2v-1.3B \
+        --size "${SIZE}" \
+        --ckpt_dir ./Wan2.1-T2V-1.3B \
+        --frame_num "${FRAME_NUM}" \
+        --sample_steps "${SAMPLE_STEPS}" \
+        --sample_shift 8 \
+        --sample_guide_scale "${GUIDE_SCALE}" \
+        --offload_model True \
+        --t5_cpu \
+        --prompt "${PROMPT}" \
+        --save_file "${FINAL_VIDEO}" \
+        2>&1 | tee /tmp/wan-generation.log
+
+      GENERATE_EXIT=${PIPESTATUS[0]}
+
+      set -e
+
+      echo
+      echo "Generation exit code: ${GENERATE_EXIT}"
+
+      if [ "${GENERATE_EXIT}" -ne 0 ]; then
+
+        echo
+        echo "=============================================="
+        echo "WAN2.1 GENERATION FAILED"
+        echo "=============================================="
+
+        tail -n 120 /tmp/wan-generation.log
+
+        exit "${GENERATE_EXIT}"
+
+      fi
+
+      if [ ! -f "${FINAL_VIDEO}" ]; then
+
+        echo "ERROR: MP4 was not created."
+
+        exit 1
+
+      fi
+
+      echo
+      echo "=============================================="
+      echo "VIDEO CREATED"
+      echo "=============================================="
+
+      ls -lh "${FINAL_VIDEO}"
+
+      ffprobe \
+        -v error \
+        -show_entries \
+        format=duration,size \
+        -show_entries \
+        stream=codec_name,width,height,r_frame_rate \
+        -of default=noprint_wrappers=1 \
+        "${FINAL_VIDEO}"
+
+      echo "FINAL_VIDEO=${FINAL_VIDEO}" >> "$GITHUB_ENV"
+
+  # ==========================================================
+  # 19. INSPECT FINAL VIDEO
+  # ==========================================================
+
+  - name: Inspect final video
+    if: success()
+    shell: bash
+    run: |
+      set -euo pipefail
+
+      echo "=============================================="
+      echo "INSPECT FINAL VIDEO"
+      echo "=============================================="
+
+      test -f "${FINAL_VIDEO}"
+
+      ls -lh "${FINAL_VIDEO}"
+
+      ffprobe \
+        -v error \
+        -show_entries \
+        format=duration,size \
+        -show_entries \
+        stream=codec_name,width,height,r_frame_rate \
+        -of default=noprint_wrappers=1 \
+        "${FINAL_VIDEO}"
+
+      echo
+      echo "FINAL VIDEO INSPECTION: PASS"
+
+  # ==========================================================
+  # 20. CALLBACK - UPLOADING
+  # ==========================================================
+
+  - name: Callback - Uploading
+    if: success()
+    shell: bash
+    run: |
+      set -euo pipefail
+
+      python3 - <<'PY' > /tmp/callback.json
+      import json
+
+      print(json.dumps({
+          "status": "running",
+          "progress": 80,
+          "stage": "uploading"
+      }))
+      PY
+
+      curl -sS -f \
+        --retry 3 \
+        --retry-delay 3 \
+        -X POST \
+        "${RENDER_BASE_URL}/api/worker/jobs/${JOB_ID}/callback" \
+        -H "Content-Type: application/json" \
+        -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
+        --data-binary @/tmp/callback.json
+
+  # ==========================================================
+  # 21. UPLOAD
+  # ==========================================================
+
+  - name: Upload video to Render
+    if: success()
+    shell: bash
+    run: |
+      set -euo pipefail
+
+      test -f "${FINAL_VIDEO}"
+
+      echo "Uploading:"
+      ls -lh "${FINAL_VIDEO}"
+
+      curl -sS -f \
+        --retry 5 \
+        --retry-delay 5 \
+        -X POST \
+        "${RENDER_BASE_URL}/api/worker/jobs/${JOB_ID}/upload" \
+        -H "Content-Type: video/mp4" \
+        -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
+        --data-binary "@${FINAL_VIDEO}"
+
+      echo
+      echo "UPLOAD: PASS"
+
+  # ==========================================================
+  # 22. COMPLETED
+  # ==========================================================
+
+  - name: Callback - Completed
+    if: success()
+    shell: bash
+    run: |
+      set -euo pipefail
+
+      python3 - <<'PY' > /tmp/callback.json
+      import json
+      import os
+
+      print(json.dumps({
+          "status": "completed",
+          "progress": 100,
+          "stage": "completed",
+          "output_url":
+              os.environ["RENDER_BASE_URL"]
+              + "/api/jobs/"
+              + os.environ["JOB_ID"]
+              + "/video"
+      }))
+      PY
+
+      cat /tmp/callback.json
+
+      curl -sS -f \
+        --retry 3 \
+        --retry-delay 2 \
+        -X POST \
+        "${RENDER_BASE_URL}/api/worker/jobs/${JOB_ID}/callback" \
+        -H "Content-Type: application/json" \
+        -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
+        --data-binary @/tmp/callback.json
+
+      echo
+      echo "=============================================="
+      echo "GOLDEN WORKER COMPLETED"
+      echo "=============================================="
+
+  # ==========================================================
+  # 23. FAILURE CALLBACK
+  # ==========================================================
+
+  - name: Callback - Failed
+    if: failure()
+    shell: bash
+    run: |
+      set +e
+
+      python3 - <<'PY' > /tmp/failed.json
+      import json
+
+      print(json.dumps({
+          "status": "failed",
+          "progress": 0,
+          "stage": "failed",
+          "error":
+              "Wan2.1 CPU worker failed. "
+              "Check GitHub Actions logs."
+      }))
+      PY
+
+      cat /tmp/failed.json
+
+      if [ -n "${JOB_ID:-}" ]; then
+
+        curl -sS \
+          --retry 2 \
+          -X POST \
+          "${RENDER_BASE_URL}/api/worker/jobs/${JOB_ID}/callback" \
+          -H "Content-Type: application/json" \
+          -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
+          --data-binary @/tmp/failed.json \
+          || true
+
+      fi
