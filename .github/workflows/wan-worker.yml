@@ -52,7 +52,7 @@ jobs:
 
       # ============================================================
       # GOLDEN CPU CONFIGURATION
-      # Keep this stable until the MP4 pipeline is proven end-to-end.
+      # DO NOT CHANGE YET.
       # ============================================================
       FRAME_WIDTH: "256"
       FRAME_HEIGHT: "256"
@@ -638,6 +638,151 @@ jobs:
           ls -lh "${FINAL_VIDEO}"
 
       # ============================================================
+      # 16.5. NORMALIZE FINAL VIDEO
+      #
+      # IMPORTANT:
+      # Keep the successful 9-frame CPU generation unchanged.
+      #
+      # This stage converts the generated clip into a browser-friendly
+      # MP4 whose playback duration matches DURATION.
+      # ============================================================
+      - name: Normalize final video
+        shell: bash
+        run: |
+          set -e
+
+          echo "============================================================"
+          echo "NORMALIZING FINAL VIDEO"
+          echo "============================================================"
+
+          if [ ! -f "${FINAL_VIDEO}" ]; then
+            echo "ERROR: Generated video does not exist."
+            exit 1
+          fi
+
+          if [ ! -s "${FINAL_VIDEO}" ]; then
+            echo "ERROR: Generated video is empty."
+            exit 1
+          fi
+
+          TARGET_DURATION="${DURATION}"
+
+          if ! awk "BEGIN { exit !(${TARGET_DURATION} > 0) }"; then
+            echo "ERROR: Invalid requested duration: ${TARGET_DURATION}"
+            exit 1
+          fi
+
+          SOURCE_DURATION="$(ffprobe \
+            -v error \
+            -show_entries format=duration \
+            -of default=noprint_wrappers=1:nokey=1 \
+            "${FINAL_VIDEO}" | tr -d '\r')"
+
+          echo "Source duration: ${SOURCE_DURATION}s"
+          echo "Target duration: ${TARGET_DURATION}s"
+
+          if [ -z "${SOURCE_DURATION}" ]; then
+            echo "ERROR: Could not read source duration."
+            exit 1
+          fi
+
+          if ! awk "BEGIN { exit !(${SOURCE_DURATION} > 0) }"; then
+            echo "ERROR: Source duration is zero."
+            exit 1
+          fi
+
+          NORMALIZED_VIDEO="${OUTPUT_DIR}/normalized.mp4"
+
+          rm -f "${NORMALIZED_VIDEO}"
+
+          SPEED_FACTOR="$(awk \
+            -v source="${SOURCE_DURATION}" \
+            -v target="${TARGET_DURATION}" \
+            'BEGIN { printf "%.12f", target/source }')"
+
+          echo "PTS scale factor: ${SPEED_FACTOR}"
+
+          ffmpeg \
+            -hide_banner \
+            -loglevel error \
+            -y \
+            -i "${FINAL_VIDEO}" \
+            -vf "setpts=${SPEED_FACTOR}*PTS" \
+            -t "${TARGET_DURATION}" \
+            -r 16 \
+            -an \
+            -c:v libx264 \
+            -preset veryfast \
+            -crf 23 \
+            -pix_fmt yuv420p \
+            -movflags +faststart \
+            "${NORMALIZED_VIDEO}"
+
+          if [ ! -s "${NORMALIZED_VIDEO}" ]; then
+            echo "ERROR: Normalized video was not created."
+            exit 1
+          fi
+
+          mv "${NORMALIZED_VIDEO}" "${FINAL_VIDEO}"
+
+          echo
+          echo "============================================================"
+          echo "NORMALIZED VIDEO"
+          echo "============================================================"
+
+          ls -lh "${FINAL_VIDEO}"
+
+          echo
+          echo "Final FFprobe:"
+
+          ffprobe \
+            -hide_banner \
+            -v error \
+            -show_entries \
+            format=filename,size,duration,format_name \
+            -show_entries \
+            stream=index,codec_name,codec_type,width,height,r_frame_rate,nb_frames \
+            -of json \
+            "${FINAL_VIDEO}"
+
+          FINAL_DURATION="$(ffprobe \
+            -v error \
+            -show_entries format=duration \
+            -of default=noprint_wrappers=1:nokey=1 \
+            "${FINAL_VIDEO}" | tr -d '\r')"
+
+          echo
+          echo "Final duration: ${FINAL_DURATION}s"
+
+          if [ -z "${FINAL_DURATION}" ]; then
+            echo "ERROR: Final duration is missing."
+            exit 1
+          fi
+
+          if ! awk \
+            -v actual="${FINAL_DURATION}" \
+            -v target="${TARGET_DURATION}" \
+            'BEGIN {
+              diff = actual - target
+              if (diff < 0) diff = -diff
+              exit !(diff <= 0.25)
+            }'
+          then
+            echo "ERROR: Final duration differs from requested duration."
+            echo "Requested: ${TARGET_DURATION}s"
+            echo "Actual:    ${FINAL_DURATION}s"
+            exit 1
+          fi
+
+          echo
+          echo "============================================================"
+          echo "VIDEO NORMALIZATION PASSED"
+          echo "============================================================"
+          echo "Requested duration: ${TARGET_DURATION}s"
+          echo "Final duration:     ${FINAL_DURATION}s"
+          echo "============================================================"
+
+      # ============================================================
       # 17. STOP HEARTBEAT
       # ============================================================
       - name: Stop generation heartbeat
@@ -653,7 +798,7 @@ jobs:
           fi
 
       # ============================================================
-      # 18. INSPECT AND VALIDATE VIDEO
+      # 18. INSPECT AND VALIDATE FINAL VIDEO
       # ============================================================
       - name: Inspect final video
         shell: bash
@@ -679,7 +824,7 @@ jobs:
           ls -lh "${FINAL_VIDEO}"
 
           echo
-          echo "FFprobe full information:"
+          echo "FFprobe:"
 
           ffprobe \
             -hide_banner \
@@ -736,7 +881,7 @@ jobs:
 
           echo
           echo "------------------------------------------------------------"
-          echo "Counting decoded video frames..."
+          echo "Checking decoded frames..."
           echo "------------------------------------------------------------"
 
           FRAME_COUNT_ACTUAL="$(ffprobe \
@@ -802,12 +947,15 @@ jobs:
             "status": "processing",
             "stage": "uploading",
             "progress": 80,
-            "message": "Uploading validated MP4 to Render"
+            "message": "Uploading validated MP4"
           }
           JSON
 
       # ============================================================
-      # 20. UPLOAD VIDEO - RAW MP4 ONLY
+      # 20. UPLOAD VIDEO
+      #
+      # Render backend expects raw video/mp4.
+      # Do not use multipart first.
       # ============================================================
       - name: Upload video to Render
         shell: bash
@@ -815,11 +963,11 @@ jobs:
           set -e
 
           echo "============================================================"
-          echo "UPLOADING VIDEO TO RENDER"
+          echo "UPLOADING VIDEO"
           echo "============================================================"
 
           echo
-          echo "Local file:"
+          echo "File:"
           ls -lh "${FINAL_VIDEO}"
 
           UPLOAD_URL="${RENDER_BASE_URL}/api/worker/jobs/${JOB_ID}/upload"
@@ -854,10 +1002,14 @@ jobs:
           cat /tmp/upload-response.json
 
           echo
-          echo "Raw MP4 upload completed successfully."
+          echo "Raw MP4 upload succeeded."
 
       # ============================================================
       # 21. VERIFY VIDEO ON RENDER
+      #
+      # This is intentionally a real GET/download test.
+      # We do not mark the job completed until the video returned
+      # by Render is a valid playable MP4.
       # ============================================================
       - name: Verify video on Render
         shell: bash
@@ -878,7 +1030,7 @@ jobs:
           echo "${VIDEO_URL}"
 
           echo
-          echo "Downloading video from Render for verification..."
+          echo "Downloading video from Render..."
 
           HTTP_STATUS="$(curl \
             --silent \
@@ -956,7 +1108,7 @@ jobs:
             -of default=noprint_wrappers=1:nokey=1 \
             "${VERIFY_FILE}" | tr -d '\r' || true)"
 
-          echo "Render duration: ${RENDER_DURATION}"
+          echo "Render duration: ${RENDER_DURATION}s"
 
           if [ -z "${RENDER_DURATION}" ]; then
             echo "ERROR: Render video duration is missing."
@@ -970,7 +1122,7 @@ jobs:
 
           echo
           echo "------------------------------------------------------------"
-          echo "Counting Render video frames..."
+          echo "Checking Render decoded frames..."
           echo "------------------------------------------------------------"
 
           RENDER_FRAME_COUNT="$(ffprobe \
@@ -1029,11 +1181,14 @@ jobs:
           echo "============================================================"
           echo "JOB COMPLETED"
           echo "============================================================"
+
           echo "Job:"
           echo "${JOB_ID}"
+
           echo
           echo "Video:"
           echo "${VIDEO_URL}"
+
           echo "============================================================"
 
           curl --fail-with-body --silent --show-error \
