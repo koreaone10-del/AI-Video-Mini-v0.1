@@ -451,6 +451,28 @@ jobs:
           JSON
 
       # ============================================================
+      # 14.5. ADD TEMPORARY SWAP FOR MODEL LOADING
+      # ============================================================
+      - name: Configure temporary swap
+        shell: bash
+        run: |
+          set -e
+
+          echo "Swap before configuration:"
+          swapon --show
+
+          if ! swapon --show=NAME --noheadings | grep -q '^/swapfile$'; then
+            sudo fallocate -l 16G /swapfile
+            sudo chmod 600 /swapfile
+            sudo mkswap /swapfile
+            sudo swapon /swapfile
+          fi
+
+          echo
+          echo "Memory and swap available for model loading:"
+          free -h
+
+      # ============================================================
       # 15. GENERATION HEARTBEAT
       # ============================================================
       - name: Start generation heartbeat
