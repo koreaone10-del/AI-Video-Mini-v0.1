@@ -461,11 +461,11 @@ jobs:
           echo "Swap before configuration:"
           swapon --show
 
-          if ! swapon --show=NAME --noheadings | grep -q '^/swapfile$'; then
-            sudo fallocate -l 16G /swapfile
-            sudo chmod 600 /swapfile
-            sudo mkswap /swapfile
-            sudo swapon /swapfile
+          if ! swapon --show=NAME --noheadings | grep -q '^/swapfile-ai-video$'; then
+            sudo fallocate -l 16G /swapfile-ai-video
+            sudo chmod 600 /swapfile-ai-video
+            sudo mkswap /swapfile-ai-video
+            sudo swapon /swapfile-ai-video
           fi
 
           echo
