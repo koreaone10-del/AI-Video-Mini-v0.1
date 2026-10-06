@@ -44,8 +44,9 @@ jobs:
     steps:
 
       # ============================================================
-      # 1. Prepare job variables
+      # 1. PREPARE JOB
       # ============================================================
+
       - name: Prepare job variables
         id: vars
         shell: bash
@@ -86,10 +87,8 @@ jobs:
           echo "DURATION=$DURATION" >> "$GITHUB_ENV"
           echo "SIZE=$SIZE" >> "$GITHUB_ENV"
 
-          # CPU proof mode.
-          #
-          # 9 = 4n + 1
-          # This is intentionally small for the first CPU test.
+          # CPU proof-test settings.
+          # Do not increase yet.
           echo "FRAME_NUM=9" >> "$GITHUB_ENV"
           echo "SAMPLE_STEPS=4" >> "$GITHUB_ENV"
 
@@ -106,8 +105,9 @@ jobs:
           echo "=============================================="
 
       # ============================================================
-      # 2. Callback - Starting
+      # 2. CALLBACK - STARTING
       # ============================================================
+
       - name: Callback - Starting
         shell: bash
         run: |
@@ -140,14 +140,16 @@ jobs:
             --data-binary @/tmp/callback-start.json
 
       # ============================================================
-      # 3. Checkout repository
+      # 3. CHECKOUT
       # ============================================================
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
       # ============================================================
-      # 4. Install system dependencies
+      # 4. SYSTEM DEPENDENCIES
       # ============================================================
+
       - name: Install system dependencies
         shell: bash
         run: |
@@ -174,8 +176,9 @@ jobs:
           curl --version | head -n 1
 
       # ============================================================
-      # 5. Hardware check
+      # 5. HARDWARE CHECK
       # ============================================================
+
       - name: Check hardware
         shell: bash
         run: |
@@ -208,8 +211,9 @@ jobs:
           echo "Worker mode: CPU-compatible Wan2.1"
 
       # ============================================================
-      # 6. Callback - Installing Wan2.1
+      # 6. CALLBACK - INSTALLING
       # ============================================================
+
       - name: Callback - Installing Wan2.1
         shell: bash
         run: |
@@ -235,8 +239,9 @@ jobs:
             --data-binary @/tmp/callback-installing.json
 
       # ============================================================
-      # 7. Clone official Wan2.1
+      # 7. CLONE WAN2.1
       # ============================================================
+
       - name: Clone Wan2.1
         shell: bash
         run: |
@@ -258,13 +263,9 @@ jobs:
           git rev-parse HEAD
 
       # ============================================================
-      # 8. Patch Wan2.1 for CPU
-      #
-      # IMPORTANT:
-      # This MUST happen before any "import wan".
-      # The previous run failed because verification imported wan
-      # before this patch.
+      # 8. PATCH WAN2.1 FOR CPU
       # ============================================================
+
       - name: Patch Wan2.1 for CPU
         shell: bash
         run: |
@@ -280,15 +281,7 @@ jobs:
           print("==============================================")
 
           # --------------------------------------------------------
-          # PATCH 1: wan/modules/t5.py
-          #
-          # The official source can evaluate:
-          #
-          # device=torch.cuda.current_device()
-          #
-          # during module import.
-          #
-          # CPU PyTorch cannot execute that call.
+          # PATCH 1: T5 import-time CUDA blocker
           # --------------------------------------------------------
 
           t5 = Path("wan/modules/t5.py")
@@ -300,8 +293,8 @@ jobs:
 
           text = t5.read_text()
 
-          old = "device=torch.cuda.current_device(),"
-          new = "device='cpu',"
+          old = "device=torch.cuda.current_device()"
+          new = "device='cpu'"
 
           if old in text:
               text = text.replace(old, new, 1)
@@ -314,13 +307,7 @@ jobs:
               )
 
           # --------------------------------------------------------
-          # PATCH 2: wan/text2video.py
-          #
-          # The official implementation selects CUDA directly.
-          # We make device selection automatic:
-          #
-          # CUDA available -> CUDA
-          # otherwise       -> CPU
+          # PATCH 2: CPU device selection
           # --------------------------------------------------------
 
           t2v = Path("wan/text2video.py")
@@ -349,8 +336,6 @@ jobs:
 
           # --------------------------------------------------------
           # PATCH 3: CPU-safe autocast
-          #
-          # CUDA AMP must not be required on CPU.
           # --------------------------------------------------------
 
           old = (
@@ -374,13 +359,16 @@ jobs:
               )
 
           # --------------------------------------------------------
-          # PATCH 4: protect CUDA cache cleanup
+          # PATCH 4: CPU-safe CUDA cache cleanup
+          #
+          # IMPORTANT:
+          # Keep exact indentation.
           # --------------------------------------------------------
 
           old = "            torch.cuda.empty_cache()"
 
           new = '''            if torch.cuda.is_available():
-                  torch.cuda.empty_cache()'''
+                torch.cuda.empty_cache()'''
 
           if old in text:
               text = text.replace(old, new, 1)
@@ -392,13 +380,16 @@ jobs:
               )
 
           # --------------------------------------------------------
-          # PATCH 5: protect CUDA synchronization
+          # PATCH 5: CPU-safe CUDA synchronization
+          #
+          # IMPORTANT:
+          # Keep exact indentation.
           # --------------------------------------------------------
 
           old = "        torch.cuda.synchronize()"
 
           new = '''        if torch.cuda.is_available():
-              torch.cuda.synchronize()'''
+            torch.cuda.synchronize()'''
 
           if old in text:
               text = text.replace(old, new, 1)
@@ -412,11 +403,10 @@ jobs:
           t2v.write_text(text)
 
           # --------------------------------------------------------
-          # Verify that the known CUDA import blocker is gone.
+          # VERIFY T5 PATCH
           # --------------------------------------------------------
 
           t5_text = t5.read_text()
-          t2v_text = t2v.read_text()
 
           if "device=torch.cuda.current_device()" in t5_text:
               raise SystemExit(
@@ -424,9 +414,41 @@ jobs:
                   "torch.cuda.current_device()"
               )
 
+          # --------------------------------------------------------
+          # VERIFY DEVICE PATCH
+          # --------------------------------------------------------
+
+          t2v_text = t2v.read_text()
+
           if 'self.device = torch.device(f"cuda:{device_id}")' in t2v_text:
               raise SystemExit(
                   "CPU PATCH FAILED: text2video.py still forces CUDA"
+              )
+
+          # --------------------------------------------------------
+          # VERIFY INDENTATION OF EMPTY_CACHE PATCH
+          # --------------------------------------------------------
+
+          if (
+              "if torch.cuda.is_available():\n"
+              "                torch.cuda.empty_cache()"
+          ) not in t2v_text:
+              raise SystemExit(
+                  "CPU PATCH FAILED: empty_cache indentation "
+                  "was not applied correctly."
+              )
+
+          # --------------------------------------------------------
+          # VERIFY INDENTATION OF SYNCHRONIZE PATCH
+          # --------------------------------------------------------
+
+          if (
+              "if torch.cuda.is_available():\n"
+              "            torch.cuda.synchronize()"
+          ) not in t2v_text:
+              raise SystemExit(
+                  "CPU PATCH FAILED: synchronize indentation "
+                  "was not applied correctly."
               )
 
           print("==============================================")
@@ -436,7 +458,6 @@ jobs:
 
           # --------------------------------------------------------
           # Syntax check BEFORE installing/importing Wan.
-          # This protects us from introducing a Python syntax error.
           # --------------------------------------------------------
 
           echo
@@ -459,8 +480,9 @@ jobs:
             wan/text2video.py || true
 
       # ============================================================
-      # 9. Create Python environment
+      # 9. PYTHON ENVIRONMENT
       # ============================================================
+
       - name: Create Python environment
         shell: bash
         run: |
@@ -484,8 +506,9 @@ jobs:
           pip --version
 
       # ============================================================
-      # 10. Install CPU PyTorch
+      # 10. CPU PYTORCH
       # ============================================================
+
       - name: Install CPU PyTorch
         shell: bash
         run: |
@@ -507,6 +530,7 @@ jobs:
           print("==============================================")
           print("PyTorch CPU verification")
           print("==============================================")
+
           print("Torch:", torch.__version__)
           print("CUDA available:", torch.cuda.is_available())
           print("CUDA version:", torch.version.cuda)
@@ -520,8 +544,9 @@ jobs:
           PY
 
       # ============================================================
-      # 11. Install Wan2.1 dependencies
+      # 11. WAN DEPENDENCIES
       # ============================================================
+
       - name: Install Wan2.1 dependencies
         shell: bash
         run: |
@@ -551,8 +576,9 @@ jobs:
           echo "=============================================="
 
       # ============================================================
-      # 12. Install Hugging Face CLI
+      # 12. HUGGING FACE CLI
       # ============================================================
+
       - name: Install Hugging Face CLI
         shell: bash
         run: |
@@ -571,12 +597,9 @@ jobs:
           echo "Hugging Face CLI: OK"
 
       # ============================================================
-      # 13. Verify patched Wan2.1
-      #
-      # IMPORTANT:
-      # This is the FIRST point where "import wan" is performed.
-      # The CPU patch has already been applied.
+      # 13. VERIFY PATCHED WAN
       # ============================================================
+
       - name: Verify patched Wan2.1
         shell: bash
         run: |
@@ -615,8 +638,9 @@ jobs:
           PY
 
       # ============================================================
-      # 14. Callback - Downloading model
+      # 14. CALLBACK - DOWNLOADING MODEL
       # ============================================================
+
       - name: Callback - Downloading model
         shell: bash
         run: |
@@ -642,8 +666,9 @@ jobs:
             --data-binary @/tmp/callback-downloading.json
 
       # ============================================================
-      # 15. Download Wan2.1 T2V 1.3B
+      # 15. DOWNLOAD MODEL
       # ============================================================
+
       - name: Download Wan2.1 T2V 1.3B
         shell: bash
         run: |
@@ -666,8 +691,9 @@ jobs:
           du -sh ./Wan2.1-T2V-1.3B
 
       # ============================================================
-      # 16. Callback - Generating
+      # 16. CALLBACK - GENERATING
       # ============================================================
+
       - name: Callback - Generating
         shell: bash
         run: |
@@ -693,8 +719,9 @@ jobs:
             --data-binary @/tmp/callback-generating.json
 
       # ============================================================
-      # 17. Generate Wan2.1 CPU proof video
+      # 17. GENERATE CPU PROOF VIDEO
       # ============================================================
+
       - name: Generate Wan2.1 CPU proof video
         shell: bash
         run: |
@@ -762,8 +789,9 @@ jobs:
           echo "FINAL_VIDEO=$FINAL_VIDEO" >> "$GITHUB_ENV"
 
       # ============================================================
-      # 18. Inspect final video
+      # 18. INSPECT VIDEO
       # ============================================================
+
       - name: Inspect final video
         if: success()
         shell: bash
@@ -791,8 +819,9 @@ jobs:
             "${FINAL_VIDEO}"
 
       # ============================================================
-      # 19. Callback - Uploading
+      # 19. CALLBACK - UPLOADING
       # ============================================================
+
       - name: Callback - Uploading
         if: success()
         shell: bash
@@ -819,8 +848,9 @@ jobs:
             --data-binary @/tmp/callback-uploading.json
 
       # ============================================================
-      # 20. Upload video to Render
+      # 20. UPLOAD VIDEO
       # ============================================================
+
       - name: Upload video to Render
         if: success()
         shell: bash
@@ -848,8 +878,9 @@ jobs:
           echo "Video uploaded successfully."
 
       # ============================================================
-      # 21. Callback - Completed
+      # 21. CALLBACK - COMPLETED
       # ============================================================
+
       - name: Callback - Completed
         if: success()
         shell: bash
@@ -886,8 +917,9 @@ jobs:
             --data-binary @/tmp/completed.json
 
       # ============================================================
-      # 22. Callback - Failed
+      # 22. CALLBACK - FAILED
       # ============================================================
+
       - name: Callback - Failed
         if: failure()
         shell: bash
