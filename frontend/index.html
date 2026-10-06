@@ -2,237 +2,1158 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+
     <meta
         name="viewport"
-        content="width=device-width, initial-scale=1.0"
+        content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    >
+
+    <meta
+        name="theme-color"
+        content="#070b18"
+    >
+
+    <meta
+        name="description"
+        content="AI Video Mini — lightweight AI video generation powered by GitHub Actions."
     >
 
     <title>AI Video Mini</title>
 
     <style>
+        :root {
+            --bg: #050816;
+            --bg-soft: #090f20;
+            --panel: rgba(12, 18, 35, 0.78);
+            --panel-strong: rgba(15, 23, 42, 0.94);
+
+            --border: rgba(148, 163, 184, 0.14);
+            --border-strong: rgba(139, 92, 246, 0.32);
+
+            --text: #f8fafc;
+            --muted: #94a3b8;
+            --muted-2: #64748b;
+
+            --purple: #8b5cf6;
+            --purple-2: #6366f1;
+            --blue: #38bdf8;
+
+            --green: #4ade80;
+            --yellow: #facc15;
+            --red: #fb7185;
+
+            --shadow:
+                0 30px 100px rgba(0, 0, 0, 0.48);
+
+            --radius-xl: 28px;
+            --radius-lg: 20px;
+            --radius-md: 14px;
+        }
+
         * {
             box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        html {
+            scroll-behavior: smooth;
         }
 
         body {
             margin: 0;
             min-height: 100vh;
-            font-family: Arial, Helvetica, sans-serif;
+
+            font-family:
+                Inter,
+                ui-sans-serif,
+                system-ui,
+                -apple-system,
+                BlinkMacSystemFont,
+                "Segoe UI",
+                Arial,
+                Helvetica,
+                sans-serif;
+
+            color: var(--text);
+
             background:
-                radial-gradient(circle at top left, #172554, transparent 35%),
-                radial-gradient(circle at bottom right, #312e81, transparent 35%),
-                #050816;
-            color: #ffffff;
+                radial-gradient(
+                    circle at 8% 5%,
+                    rgba(79, 70, 229, 0.22),
+                    transparent 30%
+                ),
+                radial-gradient(
+                    circle at 90% 12%,
+                    rgba(139, 92, 246, 0.20),
+                    transparent 28%
+                ),
+                radial-gradient(
+                    circle at 70% 92%,
+                    rgba(37, 99, 235, 0.16),
+                    transparent 30%
+                ),
+                linear-gradient(
+                    145deg,
+                    #03050d 0%,
+                    #070b18 48%,
+                    #090d1b 100%
+                );
+
+            overflow-x: hidden;
+        }
+
+        body::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+
+            pointer-events: none;
+
+            background:
+                linear-gradient(
+                    rgba(255,255,255,0.012) 1px,
+                    transparent 1px
+                ),
+                linear-gradient(
+                    90deg,
+                    rgba(255,255,255,0.012) 1px,
+                    transparent 1px
+                );
+
+            background-size: 42px 42px;
+
+            mask-image:
+                linear-gradient(
+                    to bottom,
+                    black,
+                    transparent 85%
+                );
+
+            z-index: -2;
+        }
+
+        body::after {
+            content: "";
+
+            position: fixed;
+
+            width: 520px;
+            height: 520px;
+
+            left: 50%;
+            top: 18%;
+
+            transform: translateX(-50%);
+
+            background:
+                radial-gradient(
+                    circle,
+                    rgba(124, 58, 237, 0.10),
+                    transparent 68%
+                );
+
+            filter: blur(30px);
+
+            pointer-events: none;
+
+            z-index: -1;
+        }
+
+        button,
+        textarea,
+        select {
+            font: inherit;
         }
 
         .container {
-            width: min(920px, 94%);
+            width: min(980px, calc(100% - 28px));
+
             margin: 0 auto;
-            padding: 50px 0;
+
+            padding:
+                max(34px, env(safe-area-inset-top))
+                0
+                calc(34px + env(safe-area-inset-bottom));
         }
+
+        /* =========================================================
+           HERO
+           ========================================================= */
 
         .hero {
             text-align: center;
-            margin-bottom: 35px;
+
+            margin-bottom: 30px;
+        }
+
+        .brand-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+
+            padding: 7px 12px;
+
+            border:
+                1px solid
+                rgba(139, 92, 246, 0.24);
+
+            border-radius: 999px;
+
+            background:
+                rgba(139, 92, 246, 0.07);
+
+            color: #c4b5fd;
+
+            font-size: 12px;
+            font-weight: 700;
+
+            letter-spacing: 0.04em;
+
+            margin-bottom: 15px;
+        }
+
+        .brand-dot {
+            width: 7px;
+            height: 7px;
+
+            border-radius: 50%;
+
+            background: var(--green);
+
+            box-shadow:
+                0 0 14px
+                rgba(74, 222, 128, 0.75);
         }
 
         .hero h1 {
             margin: 0;
-            font-size: clamp(36px, 7vw, 64px);
-            font-weight: 800;
-            letter-spacing: -2px;
+
+            font-size:
+                clamp(38px, 8vw, 70px);
+
+            line-height: 0.98;
+
+            font-weight: 850;
+
+            letter-spacing: -0.055em;
         }
 
         .hero h1 span {
-            color: #8b5cf6;
+            background:
+                linear-gradient(
+                    135deg,
+                    #c084fc,
+                    #8b5cf6 48%,
+                    #6366f1
+                );
+
+            -webkit-background-clip: text;
+            background-clip: text;
+
+            color: transparent;
         }
 
         .hero p {
-            margin-top: 14px;
-            color: #aab3c5;
-            font-size: 16px;
+            max-width: 600px;
+
+            margin:
+                17px auto 0;
+
+            color: var(--muted);
+
+            font-size:
+                clamp(14px, 2.5vw, 16px);
+
+            line-height: 1.65;
         }
 
+        /* =========================================================
+           MAIN CARD
+           ========================================================= */
+
         .card {
-            background: rgba(15, 23, 42, 0.82);
-            border: 1px solid rgba(148, 163, 184, 0.15);
-            border-radius: 24px;
-            padding: 25px;
-            box-shadow: 0 25px 80px rgba(0, 0, 0, 0.35);
-            backdrop-filter: blur(15px);
+            position: relative;
+
+            background:
+                linear-gradient(
+                    145deg,
+                    rgba(15, 23, 42, 0.90),
+                    rgba(8, 13, 27, 0.86)
+                );
+
+            border:
+                1px solid
+                var(--border);
+
+            border-radius: var(--radius-xl);
+
+            padding:
+                clamp(18px, 4vw, 30px);
+
+            box-shadow: var(--shadow);
+
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+
+            overflow: hidden;
+        }
+
+        .card::before {
+            content: "";
+
+            position: absolute;
+
+            left: 0;
+            right: 0;
+            top: 0;
+
+            height: 1px;
+
+            background:
+                linear-gradient(
+                    90deg,
+                    transparent,
+                    rgba(139, 92, 246, 0.55),
+                    transparent
+                );
+        }
+
+        .section-label {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+
+            gap: 12px;
+
+            margin-bottom: 10px;
+        }
+
+        .section-label label {
+            margin: 0;
+        }
+
+        .field-hint {
+            color: var(--muted-2);
+
+            font-size: 11px;
+            font-weight: 600;
         }
 
         label {
             display: block;
+
             margin-bottom: 9px;
+
             color: #dbe4f0;
-            font-size: 14px;
-            font-weight: 600;
+
+            font-size: 13px;
+            font-weight: 750;
+
+            letter-spacing: 0.01em;
         }
 
         textarea,
         select {
             width: 100%;
-            border: 1px solid #273449;
-            border-radius: 14px;
-            background: #0b1220;
-            color: #ffffff;
+
+            border:
+                1px solid
+                rgba(71, 85, 105, 0.52);
+
+            border-radius: var(--radius-md);
+
+            background:
+                rgba(5, 10, 23, 0.76);
+
+            color: var(--text);
+
             outline: none;
-            transition: 0.2s;
+
+            transition:
+                border-color 0.2s ease,
+                box-shadow 0.2s ease,
+                background 0.2s ease;
         }
 
         textarea {
-            min-height: 150px;
-            padding: 16px;
+            min-height: 165px;
+
+            padding: 17px;
+
             resize: vertical;
+
             font-size: 15px;
-            line-height: 1.5;
+            line-height: 1.65;
         }
 
         select {
-            padding: 14px;
-            font-size: 15px;
+            padding: 15px 14px;
+
+            font-size: 14px;
+
+            appearance: auto;
+        }
+
+        textarea::placeholder {
+            color: #536176;
         }
 
         textarea:focus,
         select:focus {
-            border-color: #8b5cf6;
-            box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.12);
+            border-color:
+                rgba(139, 92, 246, 0.72);
+
+            background:
+                rgba(8, 13, 29, 0.92);
+
+            box-shadow:
+                0 0 0 4px
+                rgba(139, 92, 246, 0.09),
+                0 10px 30px
+                rgba(0, 0, 0, 0.12);
         }
 
         .grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 15px;
-            margin-top: 18px;
+
+            grid-template-columns:
+                repeat(2, minmax(0, 1fr));
+
+            gap: 14px;
+
+            margin-top: 17px;
         }
 
+        .field-card {
+            min-width: 0;
+        }
+
+        /* =========================================================
+           GENERATE BUTTON
+           ========================================================= */
+
         .generate {
+            position: relative;
+
             width: 100%;
-            margin-top: 22px;
+
+            margin-top: 20px;
+
             padding: 16px 20px;
+
             border: 0;
-            border-radius: 14px;
-            background: linear-gradient(135deg, #7c3aed, #4f46e5);
+
+            border-radius: 15px;
+
+            background:
+                linear-gradient(
+                    135deg,
+                    #8b5cf6,
+                    #6366f1 55%,
+                    #4f46e5
+                );
+
             color: white;
-            font-size: 16px;
-            font-weight: 700;
+
+            font-size: 15px;
+            font-weight: 800;
+
             cursor: pointer;
-            transition: 0.2s;
+
+            box-shadow:
+                0 12px 30px
+                rgba(99, 102, 241, 0.22);
+
+            transition:
+                transform 0.2s ease,
+                filter 0.2s ease,
+                opacity 0.2s ease;
+        }
+
+        .generate::after {
+            content: "";
+
+            position: absolute;
+
+            inset: 1px;
+
+            border-radius: 14px;
+
+            background:
+                linear-gradient(
+                    180deg,
+                    rgba(255,255,255,0.12),
+                    transparent 45%
+                );
+
+            pointer-events: none;
         }
 
         .generate:hover {
             transform: translateY(-1px);
+
             filter: brightness(1.08);
         }
 
-        .generate:disabled {
-            opacity: 0.55;
-            cursor: not-allowed;
-            transform: none;
+        .generate:active {
+            transform: translateY(1px);
         }
+
+        .generate:disabled {
+            opacity: 0.58;
+
+            cursor: not-allowed;
+
+            transform: none;
+
+            filter: none;
+        }
+
+        /* =========================================================
+           STATUS PANEL
+           ========================================================= */
 
         .status {
             display: none;
-            margin-top: 22px;
-            padding: 18px;
-            border-radius: 16px;
-            background: #0b1220;
-            border: 1px solid #273449;
+
+            margin-top: 20px;
+
+            padding: 20px;
+
+            border:
+                1px solid
+                rgba(71, 85, 105, 0.42);
+
+            border-radius: var(--radius-lg);
+
+            background:
+                linear-gradient(
+                    145deg,
+                    rgba(7, 12, 27, 0.94),
+                    rgba(10, 15, 30, 0.80)
+                );
+
+            box-shadow:
+                inset 0 1px 0
+                rgba(255,255,255,0.025);
         }
 
         .status.active {
             display: block;
+
+            animation:
+                statusIn 0.35s ease;
+        }
+
+        @keyframes statusIn {
+            from {
+                opacity: 0;
+                transform: translateY(7px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .status-top {
+            display: flex;
+
+            align-items: flex-start;
+
+            justify-content: space-between;
+
+            gap: 14px;
+        }
+
+        .status-heading {
+            min-width: 0;
         }
 
         .status-title {
-            font-size: 16px;
-            font-weight: 700;
-            margin-bottom: 8px;
+            font-size: 17px;
+
+            font-weight: 800;
+
+            line-height: 1.25;
         }
 
         .status-text {
-            color: #aab3c5;
+            margin-top: 7px;
+
+            color: var(--muted);
+
+            font-size: 13px;
+
+            line-height: 1.55;
+
+            word-break: break-word;
+        }
+
+        .status-badge {
+            flex: 0 0 auto;
+
+            display: inline-flex;
+
+            align-items: center;
+
+            gap: 7px;
+
+            padding: 6px 9px;
+
+            border-radius: 999px;
+
+            background:
+                rgba(139, 92, 246, 0.09);
+
+            border:
+                1px solid
+                rgba(139, 92, 246, 0.20);
+
+            color: #c4b5fd;
+
+            font-size: 10px;
+
+            font-weight: 800;
+
+            text-transform: uppercase;
+
+            letter-spacing: 0.06em;
+        }
+
+        .status-badge-dot {
+            width: 6px;
+            height: 6px;
+
+            border-radius: 50%;
+
+            background: var(--purple);
+
+            box-shadow:
+                0 0 10px
+                rgba(139, 92, 246, 0.7);
+
+            animation:
+                pulse 1.6s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%,
+            100% {
+                opacity: 0.45;
+            }
+
+            50% {
+                opacity: 1;
+            }
+        }
+
+        .progress-meta {
+            display: flex;
+
+            justify-content: space-between;
+
+            align-items: center;
+
+            margin-top: 18px;
+
+            margin-bottom: 8px;
+        }
+
+        .progress-label {
+            color: var(--muted-2);
+
+            font-size: 11px;
+
+            font-weight: 700;
+
+            text-transform: uppercase;
+
+            letter-spacing: 0.06em;
+        }
+
+        .progress-value {
+            color: #e2e8f0;
+
             font-size: 14px;
-            line-height: 1.5;
+
+            font-weight: 800;
         }
 
         .progress {
-            height: 8px;
-            margin-top: 15px;
-            background: #1e293b;
-            border-radius: 20px;
+            position: relative;
+
+            height: 10px;
+
+            background:
+                rgba(30, 41, 59, 0.78);
+
+            border-radius: 999px;
+
             overflow: hidden;
+
+            border:
+                1px solid
+                rgba(71, 85, 105, 0.18);
         }
 
         .progress-bar {
+            position: relative;
+
             width: 0%;
+
             height: 100%;
-            background: linear-gradient(90deg, #8b5cf6, #6366f1);
-            transition: width 0.4s ease;
+
+            border-radius: inherit;
+
+            background:
+                linear-gradient(
+                    90deg,
+                    #8b5cf6,
+                    #6366f1,
+                    #38bdf8
+                );
+
+            box-shadow:
+                0 0 18px
+                rgba(99, 102, 241, 0.34);
+
+            transition:
+                width 0.7s
+                cubic-bezier(0.22, 1, 0.36, 1);
         }
+
+        .progress-bar::after {
+            content: "";
+
+            position: absolute;
+
+            top: 0;
+            right: 0;
+
+            width: 80px;
+            height: 100%;
+
+            background:
+                linear-gradient(
+                    90deg,
+                    transparent,
+                    rgba(255,255,255,0.35)
+                );
+
+            filter: blur(2px);
+
+            animation:
+                progressGlow 1.7s
+                linear infinite;
+        }
+
+        @keyframes progressGlow {
+            from {
+                transform: translateX(-30px);
+                opacity: 0;
+            }
+
+            35% {
+                opacity: 1;
+            }
+
+            to {
+                transform: translateX(30px);
+                opacity: 0;
+            }
+        }
+
+        /* =========================================================
+           LIVE METRICS
+           ========================================================= */
+
+        .metrics {
+            display: grid;
+
+            grid-template-columns:
+                repeat(3, minmax(0, 1fr));
+
+            gap: 9px;
+
+            margin-top: 14px;
+        }
+
+        .metric {
+            padding: 12px;
+
+            border:
+                1px solid
+                rgba(71, 85, 105, 0.28);
+
+            border-radius: 13px;
+
+            background:
+                rgba(15, 23, 42, 0.48);
+        }
+
+        .metric-label {
+            color: var(--muted-2);
+
+            font-size: 10px;
+
+            font-weight: 750;
+
+            text-transform: uppercase;
+
+            letter-spacing: 0.055em;
+        }
+
+        .metric-value {
+            margin-top: 5px;
+
+            color: #e2e8f0;
+
+            font-size: 13px;
+
+            font-weight: 800;
+
+            white-space: nowrap;
+
+            overflow: hidden;
+
+            text-overflow: ellipsis;
+        }
+
+        /* =========================================================
+           CONNECTION
+           ========================================================= */
+
+        .connection {
+            display: flex;
+
+            align-items: center;
+
+            gap: 7px;
+
+            margin-top: 14px;
+
+            color: var(--muted-2);
+
+            font-size: 11px;
+
+            font-weight: 650;
+        }
+
+        .connection-dot {
+            width: 7px;
+            height: 7px;
+
+            border-radius: 50%;
+
+            background: var(--green);
+
+            box-shadow:
+                0 0 9px
+                rgba(74, 222, 128, 0.65);
+        }
+
+        .connection.reconnecting .connection-dot {
+            background: var(--yellow);
+
+            box-shadow:
+                0 0 9px
+                rgba(250, 204, 21, 0.65);
+
+            animation:
+                pulse 1s ease-in-out infinite;
+        }
+
+        .connection.reconnecting {
+            color: #fcd34d;
+        }
+
+        /* =========================================================
+           VIDEO RESULT
+           ========================================================= */
 
         .video-box {
             display: none;
-            margin-top: 24px;
+
+            margin-top: 22px;
+
+            padding: 14px;
+
+            border:
+                1px solid
+                rgba(71, 85, 105, 0.36);
+
+            border-radius: var(--radius-lg);
+
+            background:
+                rgba(3, 7, 18, 0.72);
         }
 
         .video-box.active {
             display: block;
+
+            animation:
+                resultIn 0.45s ease;
+        }
+
+        @keyframes resultIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .video-header {
+            display: flex;
+
+            justify-content: space-between;
+
+            align-items: center;
+
+            gap: 10px;
+
+            margin-bottom: 12px;
+        }
+
+        .video-title {
+            font-size: 14px;
+
+            font-weight: 800;
+        }
+
+        .ready-chip {
+            display: inline-flex;
+
+            align-items: center;
+
+            gap: 6px;
+
+            padding: 5px 8px;
+
+            border-radius: 999px;
+
+            background:
+                rgba(74, 222, 128, 0.08);
+
+            border:
+                1px solid
+                rgba(74, 222, 128, 0.18);
+
+            color: #86efac;
+
+            font-size: 10px;
+
+            font-weight: 800;
+
+            text-transform: uppercase;
+        }
+
+        .ready-chip::before {
+            content: "";
+
+            width: 5px;
+            height: 5px;
+
+            border-radius: 50%;
+
+            background: var(--green);
         }
 
         video {
             display: block;
+
             width: 100%;
-            max-height: 600px;
-            border-radius: 16px;
+
+            max-height: 620px;
+
+            border-radius: 14px;
+
             background: #000;
+
+            outline: none;
         }
 
         .download {
-            display: inline-block;
+            display: flex;
+
+            align-items: center;
+
+            justify-content: center;
+
             width: 100%;
-            margin-top: 14px;
+
+            margin-top: 12px;
+
             padding: 14px;
+
             text-align: center;
+
             text-decoration: none;
-            border-radius: 12px;
-            background: #172033;
+
+            border-radius: 13px;
+
+            background:
+                rgba(23, 32, 51, 0.9);
+
             color: #ffffff;
-            border: 1px solid #2b3952;
+
+            border:
+                1px solid
+                rgba(71, 85, 105, 0.48);
+
+            font-size: 13px;
+
+            font-weight: 750;
+
+            transition:
+                background 0.2s ease,
+                border-color 0.2s ease;
         }
 
         .download:hover {
-            background: #202c43;
+            background:
+                rgba(32, 44, 67, 0.96);
+
+            border-color:
+                rgba(139, 92, 246, 0.28);
         }
 
+        /* =========================================================
+           ERROR / WARNING
+           ========================================================= */
+
         .error {
-            color: #fca5a5;
+            color: #fda4af !important;
         }
 
         .success {
-            color: #86efac;
+            color: #86efac !important;
         }
+
+        .warning {
+            color: #fcd34d !important;
+        }
+
+        /* =========================================================
+           FOOTER
+           ========================================================= */
 
         .footer {
             text-align: center;
-            margin-top: 28px;
-            color: #64748b;
-            font-size: 13px;
+
+            margin-top: 25px;
+
+            color: #475569;
+
+            font-size: 11px;
+
+            letter-spacing: 0.02em;
         }
+
+        /* =========================================================
+           MOBILE
+           ========================================================= */
 
         @media (max-width: 650px) {
             .container {
-                padding: 25px 0;
+                width:
+                    min(
+                        100% - 18px,
+                        980px
+                    );
+
+                padding-top:
+                    max(
+                        24px,
+                        env(safe-area-inset-top)
+                    );
+            }
+
+            .hero {
+                margin-bottom: 20px;
+            }
+
+            .hero h1 {
+                font-size: 43px;
+            }
+
+            .hero p {
+                font-size: 13px;
+
+                margin-top: 13px;
             }
 
             .card {
-                padding: 18px;
-                border-radius: 18px;
+                padding: 15px;
+
+                border-radius: 22px;
+            }
+
+            textarea {
+                min-height: 145px;
             }
 
             .grid {
                 grid-template-columns: 1fr;
+
+                gap: 11px;
+            }
+
+            .status {
+                padding: 16px;
+            }
+
+            .metrics {
+                grid-template-columns:
+                    repeat(3, minmax(0, 1fr));
+
+                gap: 7px;
+            }
+
+            .metric {
+                padding: 10px 8px;
+            }
+
+            .metric-value {
+                font-size: 11px;
+            }
+
+            .metric-label {
+                font-size: 8px;
+            }
+
+            .status-top {
+                gap: 9px;
+            }
+
+            .status-badge {
+                font-size: 8px;
+            }
+        }
+
+        @media (max-width: 380px) {
+            .metrics {
+                grid-template-columns: 1fr;
+
+                gap: 7px;
+            }
+
+            .metric {
+                display: flex;
+
+                justify-content: space-between;
+
+                align-items: center;
+            }
+
+            .metric-value {
+                margin-top: 0;
             }
         }
     </style>
@@ -242,92 +1163,295 @@
 
 <div class="container">
 
+    <!-- =========================================================
+         HERO
+         ========================================================= -->
+
     <div class="hero">
-        <h1>AI Video <span>Mini</span></h1>
+
+        <div class="brand-badge">
+            <span class="brand-dot"></span>
+            AI VIDEO ENGINE
+        </div>
+
+        <h1>
+            AI Video <span>Mini</span>
+        </h1>
+
         <p>
-            Lightweight AI video generation powered by GitHub Actions.
+            Create AI videos with a lightweight workflow powered by
+            GitHub Actions and real-time worker progress.
         </p>
+
     </div>
+
+
+    <!-- =========================================================
+         MAIN CARD
+         ========================================================= -->
 
     <div class="card">
 
-        <label for="prompt">
-            Video Prompt
-        </label>
+        <div class="section-label">
+
+            <label for="prompt">
+                Video Prompt
+            </label>
+
+            <span class="field-hint">
+                Describe your scene
+            </span>
+
+        </div>
 
         <textarea
             id="prompt"
             placeholder="Describe the video you want to generate..."
+            autocomplete="off"
+            spellcheck="false"
         ></textarea>
+
+
+        <!-- OPTIONS -->
 
         <div class="grid">
 
-            <div>
+            <div class="field-card">
+
                 <label for="aspect">
                     Aspect Ratio
                 </label>
 
                 <select id="aspect">
-                    <option value="16:9">16:9 — Landscape</option>
-                    <option value="9:16">9:16 — Portrait</option>
-                    <option value="1:1">1:1 — Square</option>
+
+                    <option value="16:9">
+                        16:9 — Landscape
+                    </option>
+
+                    <option value="9:16">
+                        9:16 — Portrait
+                    </option>
+
+                    <option value="1:1">
+                        1:1 — Square
+                    </option>
+
                 </select>
+
             </div>
 
-            <div>
+
+            <div class="field-card">
+
                 <label for="duration">
                     Duration
                 </label>
 
                 <select id="duration">
-                    <option value="5">5 seconds</option>
-                    <option value="10">10 seconds</option>
+
+                    <option value="5">
+                        5 seconds
+                    </option>
+
+                    <option value="10">
+                        10 seconds
+                    </option>
+
                 </select>
+
             </div>
 
         </div>
 
+
+        <!-- GENERATE -->
+
         <button
             id="generateBtn"
             class="generate"
+            type="button"
         >
             Generate Video
         </button>
+
+
+        <!-- =====================================================
+             STATUS
+             ===================================================== -->
 
         <div
             id="status"
             class="status"
         >
-            <div
-                id="statusTitle"
-                class="status-title"
-            >
-                Preparing...
+
+            <div class="status-top">
+
+                <div class="status-heading">
+
+                    <div
+                        id="statusTitle"
+                        class="status-title"
+                    >
+                        Preparing...
+                    </div>
+
+                    <div
+                        id="statusText"
+                        class="status-text"
+                    >
+                        Creating your job.
+                    </div>
+
+                </div>
+
+
+                <div
+                    id="statusBadge"
+                    class="status-badge"
+                >
+
+                    <span
+                        id="statusBadgeDot"
+                        class="status-badge-dot"
+                    ></span>
+
+                    <span id="statusBadgeText">
+                        LIVE
+                    </span>
+
+                </div>
+
             </div>
 
-            <div
-                id="statusText"
-                class="status-text"
-            >
-                Creating your job.
+
+            <!-- PROGRESS -->
+
+            <div class="progress-meta">
+
+                <span class="progress-label">
+                    Worker Progress
+                </span>
+
+                <span
+                    id="progressValue"
+                    class="progress-value"
+                >
+                    0%
+                </span>
+
             </div>
 
             <div class="progress">
+
                 <div
                     id="progressBar"
                     class="progress-bar"
                 ></div>
+
             </div>
+
+
+            <!-- METRICS -->
+
+            <div class="metrics">
+
+                <div class="metric">
+
+                    <div class="metric-label">
+                        Elapsed
+                    </div>
+
+                    <div
+                        id="elapsedValue"
+                        class="metric-value"
+                    >
+                        00:00
+                    </div>
+
+                </div>
+
+
+                <div class="metric">
+
+                    <div class="metric-label">
+                        ETA
+                    </div>
+
+                    <div
+                        id="etaValue"
+                        class="metric-value"
+                    >
+                        Calculating…
+                    </div>
+
+                </div>
+
+
+                <div class="metric">
+
+                    <div class="metric-label">
+                        Stage
+                    </div>
+
+                    <div
+                        id="stageValue"
+                        class="metric-value"
+                    >
+                        Starting
+                    </div>
+
+                </div>
+
+            </div>
+
+
+            <!-- CONNECTION -->
+
+            <div
+                id="connectionStatus"
+                class="connection"
+            >
+
+                <span
+                    id="connectionDot"
+                    class="connection-dot"
+                ></span>
+
+                <span id="connectionText">
+                    Connected to worker
+                </span>
+
+            </div>
+
         </div>
+
+
+        <!-- =====================================================
+             VIDEO
+             ===================================================== -->
 
         <div
             id="videoBox"
             class="video-box"
         >
+
+            <div class="video-header">
+
+                <div class="video-title">
+                    Generated Video
+                </div>
+
+                <div class="ready-chip">
+                    Ready
+                </div>
+
+            </div>
+
             <video
                 id="video"
                 controls
                 playsinline
+                preload="metadata"
             ></video>
 
             <a
@@ -338,257 +1462,139 @@
             >
                 Download Video
             </a>
+
         </div>
 
     </div>
 
+
     <div class="footer">
-        AI Video Mini v0.1
+        AI Video Mini v0.1 · Powered by GitHub Actions
     </div>
 
 </div>
 
+
 <script>
-const promptInput = document.getElementById("prompt");
-const aspectInput = document.getElementById("aspect");
-const durationInput = document.getElementById("duration");
+/* =============================================================
+   ELEMENTS
+   ============================================================= */
 
-const generateBtn = document.getElementById("generateBtn");
+const promptInput =
+    document.getElementById("prompt");
 
-const statusBox = document.getElementById("status");
-const statusTitle = document.getElementById("statusTitle");
-const statusText = document.getElementById("statusText");
-const progressBar = document.getElementById("progressBar");
+const aspectInput =
+    document.getElementById("aspect");
 
-const videoBox = document.getElementById("videoBox");
-const video = document.getElementById("video");
-const download = document.getElementById("download");
+const durationInput =
+    document.getElementById("duration");
+
+const generateBtn =
+    document.getElementById("generateBtn");
+
+const statusBox =
+    document.getElementById("status");
+
+const statusTitle =
+    document.getElementById("statusTitle");
+
+const statusText =
+    document.getElementById("statusText");
+
+const statusBadgeText =
+    document.getElementById("statusBadgeText");
+
+const progressBar =
+    document.getElementById("progressBar");
+
+const progressValue =
+    document.getElementById("progressValue");
+
+const elapsedValue =
+    document.getElementById("elapsedValue");
+
+const etaValue =
+    document.getElementById("etaValue");
+
+const stageValue =
+    document.getElementById("stageValue");
+
+const connectionStatus =
+    document.getElementById("connectionStatus");
+
+const connectionText =
+    document.getElementById("connectionText");
+
+const videoBox =
+    document.getElementById("videoBox");
+
+const video =
+    document.getElementById("video");
+
+const download =
+    document.getElementById("download");
+
+
+/* =============================================================
+   STATE
+   ============================================================= */
 
 let pollingTimer = null;
 
-function showStatus(title, text, progress = 0) {
-    statusBox.classList.add("active");
+let elapsedTimer = null;
 
-    statusTitle.textContent = title;
-    statusText.textContent = text;
+let activeJobId = null;
 
-    const value = Math.max(
-        0,
-        Math.min(100, Number(progress) || 0)
+let jobStartedAt = null;
+
+let lastProgress = 0;
+
+let lastProgressTime = null;
+
+let progressSamples = [];
+
+let networkErrorCount = 0;
+
+let completed = false;
+
+
+/*
+    We deliberately do NOT create a fake countdown.
+
+    ETA is calculated from real progress values received
+    from the backend / worker.
+
+    Example:
+
+        progress = 40%
+        previous progress = 30%
+        time difference = 60 sec
+
+    estimated speed:
+
+        10% / 60 sec
+
+    remaining:
+
+        60% / speed
+
+    If the worker is not moving enough, we show
+    "Calculating…" instead of inventing a number.
+*/
+
+
+/* =============================================================
+   UTILITY
+   ============================================================= */
+
+function clamp(value, min, max) {
+
+    return Math.max(
+        min,
+        Math.min(max, value)
     );
-
-    progressBar.style.width = value + "%";
 }
 
-function showError(message) {
-    statusBox.classList.add("active");
-
-    statusTitle.textContent = "Generation failed";
-
-    statusText.textContent = message;
-
-    statusText.classList.add("error");
-
-    progressBar.style.width = "0%";
-}
-
-function resetUI() {
-    statusText.classList.remove("error");
-    statusText.classList.remove("success");
-
-    videoBox.classList.remove("active");
-
-    video.removeAttribute("src");
-    video.load();
-
-    download.removeAttribute("href");
-
-    progressBar.style.width = "0%";
-}
-
-function setButtonBusy(busy) {
-    generateBtn.disabled = busy;
-
-    if (busy) {
-        generateBtn.textContent = "Generating...";
-    } else {
-        generateBtn.textContent = "Generate Video";
-    }
-}
-
-async function createJob() {
-
-    const prompt = promptInput.value.trim();
-
-    if (!prompt) {
-        showError("Please enter a video prompt.");
-        return;
-    }
-
-    resetUI();
-
-    setButtonBusy(true);
-
-    showStatus(
-        "Creating job",
-        "Sending your request to the AI worker...",
-        5
-    );
-
-    try {
-
-        const response = await fetch("/api/jobs", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                prompt: prompt,
-                aspect_ratio: aspectInput.value,
-                duration: Number(durationInput.value)
-            })
-        });
-
-        const data = await response.json();
-
-        if (!response.ok) {
-            throw new Error(
-                data.detail ||
-                data.error ||
-                "Unable to create the job."
-            );
-        }
-
-        if (!data.job_id) {
-            throw new Error("Server did not return a job ID.");
-        }
-
-        showStatus(
-            "Job created",
-            "Waiting for GitHub Actions worker...",
-            10
-        );
-
-        pollJob(data.job_id);
-
-    } catch (error) {
-
-        showError(
-            error.message ||
-            "An unexpected error occurred."
-        );
-
-        setButtonBusy(false);
-    }
-}
-
-async function pollJob(jobId) {
-
-    if (pollingTimer) {
-        clearTimeout(pollingTimer);
-    }
-
-    try {
-
-        const response = await fetch(
-            "/api/jobs/" + encodeURIComponent(jobId),
-            {
-                method: "GET",
-                cache: "no-store"
-            }
-        );
-
-        const data = await response.json();
-
-        if (!response.ok) {
-            throw new Error(
-                data.detail ||
-                data.error ||
-                "Unable to read job status."
-            );
-        }
-
-        const progress =
-            Number(data.progress) || 0;
-
-        const stage =
-            data.stage ||
-            data.status ||
-            "processing";
-
-        const message =
-            data.message ||
-            "Worker is processing your video...";
-
-        if (
-            data.status === "completed" ||
-            data.stage === "completed"
-        ) {
-
-            const videoUrl =
-                data.output_url ||
-                data.video_url ||
-                (
-                    "/api/jobs/" +
-                    encodeURIComponent(jobId) +
-                    "/video"
-                );
-
-            showStatus(
-                "Video ready",
-                "Your video has been generated successfully.",
-                100
-            );
-
-            statusText.classList.add("success");
-
-            video.src = videoUrl;
-
-            download.href = videoUrl;
-
-            download.download =
-                "ai-video-" + jobId + ".mp4";
-
-            videoBox.classList.add("active");
-
-            setButtonBusy(false);
-
-            return;
-        }
-
-        if (
-            data.status === "failed" ||
-            data.stage === "failed" ||
-            data.error
-        ) {
-
-            throw new Error(
-                data.error ||
-                "The worker failed to generate the video."
-            );
-        }
-
-        showStatus(
-            formatStage(stage),
-            message,
-            progress
-        );
-
-        pollingTimer = setTimeout(
-            () => pollJob(jobId),
-            2500
-        );
-
-    } catch (error) {
-
-        showError(
-            error.message ||
-            "Unable to check job status."
-        );
-
-        setButtonBusy(false);
-    }
-}
 
 function formatStage(stage) {
 
@@ -600,28 +1606,1312 @@ function formatStage(stage) {
         return "Processing";
     }
 
-    return value.charAt(0).toUpperCase()
-        + value.slice(1);
+    return value
+        .split(" ")
+        .map(function(word) {
+
+            if (!word) {
+                return "";
+            }
+
+            return (
+                word.charAt(0).toUpperCase() +
+                word.slice(1)
+            );
+
+        })
+        .join(" ");
 }
+
+
+function formatDuration(totalSeconds) {
+
+    if (
+        !Number.isFinite(totalSeconds) ||
+        totalSeconds < 0
+    ) {
+        return "00:00";
+    }
+
+    const seconds =
+        Math.floor(totalSeconds);
+
+    const hours =
+        Math.floor(seconds / 3600);
+
+    const minutes =
+        Math.floor(
+            (seconds % 3600) / 60
+        );
+
+    const secs =
+        seconds % 60;
+
+
+    if (hours > 0) {
+
+        return (
+            String(hours).padStart(2, "0") +
+            ":" +
+            String(minutes).padStart(2, "0") +
+            ":" +
+            String(secs).padStart(2, "0")
+        );
+    }
+
+
+    return (
+        String(minutes).padStart(2, "0") +
+        ":" +
+        String(secs).padStart(2, "0")
+    );
+}
+
+
+function formatEta(seconds) {
+
+    if (
+        !Number.isFinite(seconds) ||
+        seconds <= 0
+    ) {
+        return "Calculating…";
+    }
+
+    const rounded =
+        Math.ceil(seconds);
+
+    return "~" + formatDuration(rounded);
+}
+
+
+/* =============================================================
+   STATUS UI
+   ============================================================= */
+
+function showStatus(
+    title,
+    text,
+    progress = 0,
+    stage = "processing"
+) {
+
+    statusBox.classList.add("active");
+
+
+    statusTitle.textContent =
+        title || "Processing";
+
+
+    statusText.textContent =
+        text ||
+        "Worker is processing your video.";
+
+
+    statusText.classList.remove(
+        "error",
+        "success",
+        "warning"
+    );
+
+
+    const value =
+        clamp(
+            Number(progress) || 0,
+            0,
+            100
+        );
+
+
+    progressBar.style.width =
+        value + "%";
+
+
+    progressValue.textContent =
+        Math.round(value) + "%";
+
+
+    stageValue.textContent =
+        formatStage(stage);
+
+
+    statusBadgeText.textContent =
+        value >= 100
+            ? "READY"
+            : "LIVE";
+}
+
+
+function showWarning(
+    title,
+    message
+) {
+
+    statusBox.classList.add("active");
+
+    statusTitle.textContent =
+        title || "Connection issue";
+
+    statusText.textContent =
+        message || "Retrying…";
+
+    statusText.classList.remove(
+        "error",
+        "success"
+    );
+
+    statusText.classList.add(
+        "warning"
+    );
+
+    statusBadgeText.textContent =
+        "RETRYING";
+}
+
+
+function showError(message) {
+
+    statusBox.classList.add("active");
+
+    statusTitle.textContent =
+        "Generation failed";
+
+    statusText.textContent =
+        message ||
+        "The worker failed to generate the video.";
+
+    statusText.classList.remove(
+        "success",
+        "warning"
+    );
+
+    statusText.classList.add(
+        "error"
+    );
+
+    statusBadgeText.textContent =
+        "FAILED";
+}
+
+
+function showSuccess(
+    title,
+    message
+) {
+
+    statusBox.classList.add("active");
+
+    statusTitle.textContent =
+        title || "Video ready";
+
+    statusText.textContent =
+        message ||
+        "Your video has been generated successfully.";
+
+    statusText.classList.remove(
+        "error",
+        "warning"
+    );
+
+    statusText.classList.add(
+        "success"
+    );
+
+    statusBadgeText.textContent =
+        "READY";
+}
+
+
+/* =============================================================
+   CONNECTION UI
+   ============================================================= */
+
+function setConnectionState(
+    connected,
+    message
+) {
+
+    if (connected) {
+
+        connectionStatus.classList.remove(
+            "reconnecting"
+        );
+
+        connectionText.textContent =
+            message ||
+            "Connected to worker";
+
+        return;
+    }
+
+
+    connectionStatus.classList.add(
+        "reconnecting"
+    );
+
+    connectionText.textContent =
+        message ||
+        "Connection interrupted · retrying…";
+}
+
+
+/* =============================================================
+   ELAPSED CLOCK
+   ============================================================= */
+
+function startElapsedClock() {
+
+    stopElapsedClock();
+
+
+    if (!jobStartedAt) {
+        return;
+    }
+
+
+    function update() {
+
+        if (!jobStartedAt) {
+            return;
+        }
+
+        const elapsed =
+            (
+                Date.now() -
+                jobStartedAt
+            ) / 1000;
+
+
+        elapsedValue.textContent =
+            formatDuration(elapsed);
+    }
+
+
+    update();
+
+
+    elapsedTimer =
+        setInterval(
+            update,
+            1000
+        );
+}
+
+
+function stopElapsedClock() {
+
+    if (elapsedTimer) {
+
+        clearInterval(
+            elapsedTimer
+        );
+
+        elapsedTimer = null;
+    }
+}
+
+
+/* =============================================================
+   REAL ETA ENGINE
+   ============================================================= */
+
+function updateEta(progress) {
+
+    const now =
+        Date.now();
+
+
+    const numericProgress =
+        clamp(
+            Number(progress) || 0,
+            0,
+            100
+        );
+
+
+    /*
+        Do not estimate from 0 -> first update.
+
+        We need at least two real progress
+        observations.
+    */
+
+    if (
+        lastProgressTime !== null &&
+        numericProgress > lastProgress
+    ) {
+
+        const elapsedSeconds =
+            (
+                now -
+                lastProgressTime
+            ) / 1000;
+
+
+        const progressDelta =
+            numericProgress -
+            lastProgress;
+
+
+        if (
+            elapsedSeconds > 0 &&
+            progressDelta > 0
+        ) {
+
+            const rate =
+                progressDelta /
+                elapsedSeconds;
+
+
+            progressSamples.push({
+                rate: rate,
+                time: now
+            });
+
+
+            /*
+                Keep only recent samples.
+
+                This prevents an old very-fast phase
+                from dominating the ETA forever.
+            */
+
+            const cutoff =
+                now - 120000;
+
+
+            progressSamples =
+                progressSamples.filter(
+                    function(sample) {
+                        return (
+                            sample.time >=
+                            cutoff
+                        );
+                    }
+                );
+        }
+    }
+
+
+    lastProgress =
+        numericProgress;
+
+    lastProgressTime =
+        now;
+
+
+    if (
+        numericProgress >= 100
+    ) {
+
+        etaValue.textContent =
+            "Complete";
+
+        return;
+    }
+
+
+    if (
+        progressSamples.length === 0
+    ) {
+
+        etaValue.textContent =
+            "Calculating…";
+
+        return;
+    }
+
+
+    /*
+        Average the recent real progress rates.
+    */
+
+    let totalRate = 0;
+
+
+    progressSamples.forEach(
+        function(sample) {
+            totalRate += sample.rate;
+        }
+    );
+
+
+    const averageRate =
+        totalRate /
+        progressSamples.length;
+
+
+    /*
+        If progress is too slow or invalid,
+        don't display a fake ETA.
+    */
+
+    if (
+        !Number.isFinite(averageRate) ||
+        averageRate <= 0.00005
+    ) {
+
+        etaValue.textContent =
+            "Calculating…";
+
+        return;
+    }
+
+
+    const remaining =
+        (
+            100 -
+            numericProgress
+        ) /
+        averageRate;
+
+
+    /*
+        Protect against absurd estimates caused
+        by a single fast progress jump.
+    */
+
+    if (
+        !Number.isFinite(remaining) ||
+        remaining > 24 * 60 * 60
+    ) {
+
+        etaValue.textContent =
+            "Calculating…";
+
+        return;
+    }
+
+
+    etaValue.textContent =
+        formatEta(remaining);
+}
+
+
+/* =============================================================
+   RESET UI
+   ============================================================= */
+
+function resetUI() {
+
+    if (pollingTimer) {
+
+        clearTimeout(
+            pollingTimer
+        );
+
+        pollingTimer = null;
+    }
+
+
+    stopElapsedClock();
+
+
+    statusText.classList.remove(
+        "error",
+        "success",
+        "warning"
+    );
+
+
+    statusBadgeText.textContent =
+        "LIVE";
+
+
+    connectionStatus.classList.remove(
+        "reconnecting"
+    );
+
+
+    connectionText.textContent =
+        "Connecting to worker";
+
+
+    videoBox.classList.remove(
+        "active"
+    );
+
+
+    video.removeAttribute(
+        "src"
+    );
+
+    video.load();
+
+
+    download.removeAttribute(
+        "href"
+    );
+
+
+    progressBar.style.width =
+        "0%";
+
+
+    progressValue.textContent =
+        "0%";
+
+
+    elapsedValue.textContent =
+        "00:00";
+
+
+    etaValue.textContent =
+        "Calculating…";
+
+
+    stageValue.textContent =
+        "Starting";
+
+
+    activeJobId = null;
+
+    jobStartedAt = null;
+
+    lastProgress = 0;
+
+    lastProgressTime = null;
+
+    progressSamples = [];
+
+    networkErrorCount = 0;
+
+    completed = false;
+}
+
+
+/* =============================================================
+   BUTTON STATE
+   ============================================================= */
+
+function setButtonBusy(
+    busy
+) {
+
+    generateBtn.disabled =
+        busy;
+
+
+    if (busy) {
+
+        generateBtn.textContent =
+            "Generating…";
+
+    } else {
+
+        generateBtn.textContent =
+            "Generate Video";
+    }
+}
+
+
+/* =============================================================
+   CREATE JOB
+   ============================================================= */
+
+async function createJob() {
+
+    const prompt =
+        promptInput.value.trim();
+
+
+    if (!prompt) {
+
+        showError(
+            "Please enter a video prompt."
+        );
+
+        return;
+    }
+
+
+    resetUI();
+
+
+    setButtonBusy(true);
+
+
+    jobStartedAt =
+        Date.now();
+
+
+    startElapsedClock();
+
+
+    showStatus(
+        "Creating job",
+        "Sending your request to the AI worker…",
+        5,
+        "starting"
+    );
+
+
+    setConnectionState(
+        true,
+        "Connected to Render"
+    );
+
+
+    try {
+
+        const response =
+            await fetch(
+                "/api/jobs",
+                {
+                    method: "POST",
+
+                    headers: {
+                        "Content-Type":
+                            "application/json"
+                    },
+
+                    body: JSON.stringify({
+
+                        prompt:
+                            prompt,
+
+                        aspect_ratio:
+                            aspectInput.value,
+
+                        duration:
+                            Number(
+                                durationInput.value
+                            )
+                    })
+                }
+            );
+
+
+        /*
+            Try to parse JSON safely.
+        */
+
+        let data = null;
+
+        try {
+
+            data =
+                await response.json();
+
+        } catch (_) {
+
+            data = null;
+        }
+
+
+        if (!response.ok) {
+
+            throw new Error(
+                (
+                    data &&
+                    (
+                        data.detail ||
+                        data.error
+                    )
+                ) ||
+                "Unable to create the job."
+            );
+        }
+
+
+        if (!data || !data.job_id) {
+
+            throw new Error(
+                "Server did not return a job ID."
+            );
+        }
+
+
+        activeJobId =
+            data.job_id;
+
+
+        showStatus(
+            "Job created",
+            "Waiting for GitHub Actions worker…",
+            10,
+            "starting"
+        );
+
+
+        /*
+            Immediately start polling.
+
+            The worker remains authoritative.
+        */
+
+        pollJob(
+            activeJobId
+        );
+
+
+    } catch (error) {
+
+        showError(
+            error &&
+            error.message
+                ? error.message
+                : "Unable to create the job."
+        );
+
+
+        setButtonBusy(
+            false
+        );
+
+
+        stopElapsedClock();
+    }
+}
+
+
+/* =============================================================
+   POLL JOB
+   ============================================================= */
+
+async function pollJob(
+    jobId
+) {
+
+    if (completed) {
+        return;
+    }
+
+
+    if (pollingTimer) {
+
+        clearTimeout(
+            pollingTimer
+        );
+
+        pollingTimer = null;
+    }
+
+
+    try {
+
+        const response =
+            await fetch(
+                "/api/jobs/" +
+                encodeURIComponent(jobId) +
+                "?_=" +
+                Date.now(),
+                {
+                    method: "GET",
+
+                    cache: "no-store",
+
+                    headers: {
+                        "Cache-Control":
+                            "no-cache",
+
+                        "Pragma":
+                            "no-cache"
+                    }
+                }
+            );
+
+
+        /*
+            Network connection itself succeeded.
+        */
+
+        setConnectionState(
+            true,
+            "Connected · receiving worker updates"
+        );
+
+
+        let data = null;
+
+
+        try {
+
+            data =
+                await response.json();
+
+        } catch (_) {
+
+            /*
+                If the response could not be parsed,
+                treat it as a temporary communication
+                problem rather than declaring the job failed.
+            */
+
+            throw new Error(
+                "Temporary status response error."
+            );
+        }
+
+
+        /*
+            IMPORTANT:
+
+            A HTTP error from polling is NOT automatically
+            treated as generation failure.
+
+            We retry because Render/network/proxy can
+            temporarily return 5xx or connection errors.
+        */
+
+        if (!response.ok) {
+
+            throw new Error(
+                "Temporary server response: HTTP " +
+                response.status
+            );
+        }
+
+
+        /*
+            Successful status response resets
+            network error counter.
+        */
+
+        networkErrorCount = 0;
+
+
+        const progress =
+            clamp(
+                Number(
+                    data.progress
+                ) || 0,
+                0,
+                100
+            );
+
+
+        const stage =
+            data.stage ||
+            data.status ||
+            "processing";
+
+
+        const message =
+            data.message ||
+            "Worker is processing your video…";
+
+
+        /* =====================================================
+           REAL COMPLETED
+           ===================================================== */
+
+        if (
+            data.status === "completed" ||
+            data.stage === "completed"
+        ) {
+
+            completed = true;
+
+
+            /*
+                Stop polling immediately.
+            */
+
+            if (pollingTimer) {
+
+                clearTimeout(
+                    pollingTimer
+                );
+
+                pollingTimer = null;
+            }
+
+
+            /*
+                Stop the elapsed timer.
+            */
+
+            stopElapsedClock();
+
+
+            /*
+                ETA is now complete.
+            */
+
+            progressBar.style.width =
+                "100%";
+
+            progressValue.textContent =
+                "100%";
+
+            etaValue.textContent =
+                "Complete";
+
+
+            stageValue.textContent =
+                "Completed";
+
+
+            /*
+                Prefer backend-provided URL.
+
+                Fallback remains the same endpoint
+                already used by the project.
+            */
+
+            const baseVideoUrl =
+                data.output_url ||
+                data.video_url ||
+                (
+                    "/api/jobs/" +
+                    encodeURIComponent(jobId) +
+                    "/video"
+                );
+
+
+            /*
+                Cache-busting only for browser display.
+
+                The actual backend URL remains unchanged.
+            */
+
+            const videoUrl =
+                baseVideoUrl +
+                (
+                    baseVideoUrl.includes("?")
+                        ? "&"
+                        : "?"
+                ) +
+                "t=" +
+                Date.now();
+
+
+            showSuccess(
+                "Video ready",
+                "Your video has been generated successfully."
+            );
+
+
+            setConnectionState(
+                true,
+                "Worker completed successfully"
+            );
+
+
+            video.src =
+                videoUrl;
+
+
+            download.href =
+                videoUrl;
+
+
+            download.download =
+                "ai-video-" +
+                jobId +
+                ".mp4";
+
+
+            videoBox.classList.add(
+                "active"
+            );
+
+
+            setButtonBusy(
+                false
+            );
+
+
+            /*
+                IMPORTANT:
+
+                Video loading failure is NOT generation
+                failure. We handle it separately below.
+            */
+
+            return;
+        }
+
+
+        /* =====================================================
+           REAL WORKER FAILURE ONLY
+           ===================================================== */
+
+        if (
+            data.status === "failed" ||
+            data.stage === "failed"
+        ) {
+
+            completed = true;
+
+
+            stopElapsedClock();
+
+
+            showError(
+                data.error ||
+                data.message ||
+                "The worker failed to generate the video."
+            );
+
+
+            setConnectionState(
+                true,
+                "Worker reported a real failure"
+            );
+
+
+            setButtonBusy(
+                false
+            );
+
+
+            return;
+        }
+
+
+        /*
+            IMPORTANT:
+
+            Do NOT use:
+
+                if (data.error)
+
+            as a failure condition.
+
+            Some backend states may contain informational
+            fields while the worker is still processing.
+
+            The authoritative failure state is:
+                status === "failed"
+                OR
+                stage === "failed"
+        */
+
+
+        /* =====================================================
+           LIVE WORKER UPDATE
+           ===================================================== */
+
+        showStatus(
+            formatStage(stage),
+            message,
+            progress,
+            stage
+        );
+
+
+        updateEta(
+            progress
+        );
+
+
+        /*
+            Continue polling.
+
+            The frontend does NOT assume the worker is dead
+            just because the previous request had an issue.
+        */
+
+        pollingTimer =
+            setTimeout(
+                function() {
+                    pollJob(jobId);
+                },
+                2500
+            );
+
+
+    } catch (error) {
+
+        /*
+            THIS IS THE MAIN FIX FOR:
+
+                "Failed to fetch"
+
+            We DO NOT mark the generation as failed.
+
+            The GitHub worker may still be running.
+
+            We simply retry.
+        */
+
+        networkErrorCount += 1;
+
+
+        setConnectionState(
+            false,
+            "Connection interrupted · retrying…"
+        );
+
+
+        /*
+            Keep the current real progress.
+
+            Never reset progress to zero.
+        */
+
+        const currentProgress =
+            clamp(
+                Number(
+                    progressValue.textContent
+                        .replace("%", "")
+                ) || lastProgress || 0,
+                0,
+                100
+            );
+
+
+        /*
+            First few retries:
+            clear user feedback.
+        */
+
+        if (
+            networkErrorCount <= 3
+        ) {
+
+            showWarning(
+                "Reconnecting…",
+                "Temporary connection issue. Your video job is still running."
+            );
+
+        } else {
+
+            showWarning(
+                "Worker connection unstable",
+                "Still waiting for the worker. We will keep retrying automatically."
+            );
+        }
+
+
+        progressBar.style.width =
+            currentProgress + "%";
+
+        progressValue.textContent =
+            Math.round(
+                currentProgress
+            ) + "%";
+
+
+        /*
+            We deliberately continue indefinitely.
+
+            This is important because CPU Wan2.1 generation
+            can take a long time.
+        */
+
+        const retryDelay =
+            networkErrorCount <= 3
+                ? 2500
+                : 5000;
+
+
+        pollingTimer =
+            setTimeout(
+                function() {
+                    pollJob(jobId);
+                },
+                retryDelay
+            );
+    }
+}
+
+
+/* =============================================================
+   VIDEO ERROR HANDLING
+   ============================================================= */
+
+video.addEventListener(
+    "error",
+    function() {
+
+        /*
+            The job itself may be completed even if the browser
+            cannot immediately decode/load the returned file.
+
+            Therefore DO NOT call showError("Generation failed").
+        */
+
+        showWarning(
+            "Video is ready",
+            "The worker completed the job, but the browser could not load the video yet."
+        );
+    }
+);
+
+
+/* =============================================================
+   VIDEO CAN PLAY
+   ============================================================= */
+
+video.addEventListener(
+    "canplay",
+    function() {
+
+        /*
+            If the video loads successfully,
+            restore the success state.
+        */
+
+        if (completed) {
+
+            showSuccess(
+                "Video ready",
+                "Your video is ready to watch."
+            );
+        }
+    }
+);
+
+
+/* =============================================================
+   GENERATE BUTTON
+   ============================================================= */
 
 generateBtn.addEventListener(
     "click",
     createJob
 );
 
+
+/* =============================================================
+   CTRL/CMD + ENTER
+   ============================================================= */
+
 promptInput.addEventListener(
     "keydown",
     function(event) {
 
         if (
-            (event.ctrlKey || event.metaKey) &&
+            (event.ctrlKey ||
+             event.metaKey) &&
             event.key === "Enter"
         ) {
-            createJob();
-        }
 
+            event.preventDefault();
+
+            if (
+                !generateBtn.disabled
+            ) {
+
+                createJob();
+            }
+        }
     }
 );
+
+
+/* =============================================================
+   INITIAL STATE
+   ============================================================= */
+
+showStatus(
+    "Ready",
+    "Enter a prompt and start your AI video.",
+    0,
+    "ready"
+);
+
+
+/*
+    The status panel is hidden until a job starts.
+*/
+
+statusBox.classList.remove(
+    "active"
+);
+
 </script>
 
 </body>
