@@ -103,6 +103,7 @@ jobs:
             "${RENDER_BASE_URL}/api/worker/jobs/${JOB_ID}/callback" \
             -d @- <<JSON
           {
+            "status": "processing",
             "stage": "starting",
             "progress": 2,
             "message": "Worker started",
@@ -205,6 +206,7 @@ jobs:
             "${RENDER_BASE_URL}/api/worker/jobs/${JOB_ID}/callback" \
             -d @- <<JSON
           {
+            "status": "processing",
             "stage": "installing",
             "progress": 7,
             "message": "Preparing CPU video engine"
@@ -338,6 +340,7 @@ jobs:
             "${RENDER_BASE_URL}/api/worker/jobs/${JOB_ID}/callback" \
             -d @- <<JSON
           {
+            "status": "processing",
             "stage": "model",
             "progress": 15,
             "message": "Preparing quantized Wan 2.1 1.3B CPU model"
@@ -440,6 +443,7 @@ jobs:
             "${RENDER_BASE_URL}/api/worker/jobs/${JOB_ID}/callback" \
             -d @- <<JSON
           {
+            "status": "processing",
             "stage": "generating",
             "progress": 30,
             "message": "Generating video on CPU with quantized Wan 2.1"
@@ -479,6 +483,7 @@ jobs:
                 "${RENDER_BASE_URL}/api/worker/jobs/${JOB_ID}/callback" \
                 -d @- <<JSON || true
           {
+            "status": "processing",
             "stage": "generating",
             "progress": ${progress},
             "message": "CPU generation still running"
@@ -628,6 +633,7 @@ jobs:
 
           echo
           echo "FFprobe:"
+
           ffprobe \
             -hide_banner \
             -v error \
@@ -667,6 +673,7 @@ jobs:
             "${RENDER_BASE_URL}/api/worker/jobs/${JOB_ID}/callback" \
             -d @- <<JSON
           {
+            "status": "processing",
             "stage": "uploading",
             "progress": 80,
             "message": "Uploading generated MP4"
@@ -767,6 +774,7 @@ jobs:
             "${RENDER_BASE_URL}/api/worker/jobs/${JOB_ID}/callback" \
             -d @- <<JSON
           {
+            "status": "completed",
             "stage": "completed",
             "progress": 100,
             "message": "Video generation completed successfully",
@@ -809,6 +817,7 @@ jobs:
             "${RENDER_BASE_URL}/api/worker/jobs/${JOB_ID}/callback" \
             -d @- <<JSON || true
           {
+            "status": "failed",
             "stage": "failed",
             "progress": 0,
             "message": "${ERROR_MESSAGE}",
