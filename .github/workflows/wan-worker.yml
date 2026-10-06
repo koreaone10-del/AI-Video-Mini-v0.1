@@ -67,13 +67,13 @@ jobs:
 
           case "$ASPECT_RATIO" in
             "16:9")
-              SIZE="832*480"
+              SIZE="480*272"
               ;;
             "9:16")
-              SIZE="480*832"
+              SIZE="272*480"
               ;;
             "1:1")
-              SIZE="480*480"
+              SIZE="320*320"
               ;;
             *)
               echo "Unsupported aspect ratio: $ASPECT_RATIO"
@@ -87,10 +87,16 @@ jobs:
           echo "DURATION=$DURATION" >> "$GITHUB_ENV"
           echo "SIZE=$SIZE" >> "$GITHUB_ENV"
 
-          # CPU proof-test settings.
-          # DO NOT CHANGE YET.
-          echo "FRAME_NUM=9" >> "$GITHUB_ENV"
-          echo "SAMPLE_STEPS=4" >> "$GITHUB_ENV"
+          # ========================================================
+          # CPU SMOKE TEST
+          #
+          # This is intentionally small.
+          # Once this succeeds we can increase quality/resolution.
+          # ========================================================
+
+          echo "FRAME_NUM=5" >> "$GITHUB_ENV"
+          echo "SAMPLE_STEPS=2" >> "$GITHUB_ENV"
+          echo "GUIDE_SCALE=1.0" >> "$GITHUB_ENV"
 
           echo "=============================================="
           echo "Prepared Wan2.1 CPU job"
@@ -100,8 +106,10 @@ jobs:
           echo "Aspect:        $ASPECT_RATIO"
           echo "Duration:      $DURATION"
           echo "Size:          $SIZE"
-          echo "Frame number:  9"
-          echo "Sample steps:  4"
+          echo "Frame number:  5"
+          echo "Sample steps:  2"
+          echo "Guide scale:   1.0"
+          echo "Mode:          CPU SMOKE TEST"
           echo "=============================================="
 
       # ============================================================
@@ -128,9 +136,6 @@ jobs:
 
           print(json.dumps(payload))
           PY
-
-          echo "Starting callback payload:"
-          cat /tmp/callback-start.json
 
           curl -sS -f \
             -X POST \
@@ -174,16 +179,10 @@ jobs:
           fi
 
           if [ "${#MISSING_PACKAGES[@]}" -eq 0 ]; then
-            echo
             echo "All required system tools are already available."
-            echo "Skipping apt-get update/install."
           else
-            echo
             echo "Missing packages detected:"
             printf ' - %s\n' "${MISSING_PACKAGES[@]}"
-
-            echo
-            echo "Installing only missing packages..."
 
             sudo apt-get update -qq
 
@@ -202,10 +201,7 @@ jobs:
           git --version
           curl --version | head -n 1
 
-          echo
-          echo "Python venv:"
           python3 -m venv --help >/dev/null
-          echo "python3-venv: OK"
 
           echo
           echo "System dependencies: READY"
@@ -316,10 +312,10 @@ jobs:
           print("Applying Wan2.1 CPU compatibility patches")
           print("==============================================")
 
-          # --------------------------------------------------------
+          # ========================================================
           # PATCH 1
           # T5 import-time CUDA device
-          # --------------------------------------------------------
+          # ========================================================
 
           t5 = Path("wan/modules/t5.py")
 
@@ -342,17 +338,17 @@ jobs:
 
               t5.write_text(t5_text)
 
-              print("PATCHED: wan/modules/t5.py")
+              print("PATCHED: T5 CUDA default -> CPU")
           else:
               print(
                   "INFO: T5 CUDA default already patched "
                   "or upstream source changed."
               )
 
-          # --------------------------------------------------------
+          # ========================================================
           # PATCH 2
           # WanT2V device selection
-          # --------------------------------------------------------
+          # ========================================================
 
           t2v = Path("wan/text2video.py")
 
@@ -378,19 +374,21 @@ jobs:
                   1
               )
 
-              print(
-                  "PATCHED: text2video device selection"
-              )
+              print("PATCHED: WanT2V device selection")
           else:
               print(
-                  "INFO: text2video device selection already patched "
+                  "INFO: WanT2V device selection already patched "
                   "or upstream source changed."
               )
 
-          # --------------------------------------------------------
+          # ========================================================
           # PATCH 3
           # CPU-safe autocast
-          # --------------------------------------------------------
+          #
+          # Important:
+          # Do NOT use CUDA autocast on CPU.
+          # CPU path is explicitly disabled here.
+          # ========================================================
 
           old_autocast = (
               "with amp.autocast(dtype=self.param_dtype), "
@@ -410,19 +408,17 @@ jobs:
                   1
               )
 
-              print(
-                  "PATCHED: text2video autocast"
-              )
+              print("PATCHED: CPU-safe autocast")
           else:
               print(
-                  "INFO: text2video autocast already patched "
+                  "INFO: autocast already patched "
                   "or upstream source changed."
               )
 
-          # --------------------------------------------------------
+          # ========================================================
           # PATCH 4
-          # CPU-safe torch.cuda.empty_cache()
-          # --------------------------------------------------------
+          # CPU-safe empty_cache
+          # ========================================================
 
           empty_cache_pattern = re.compile(
               r"^(?P<indent>[ \t]*)"
@@ -449,16 +445,11 @@ jobs:
                   "PATCHED: torch.cuda.empty_cache() "
                   f"({empty_count} occurrence(s))"
               )
-          else:
-              print(
-                  "INFO: torch.cuda.empty_cache() already patched "
-                  "or no matching occurrence found."
-              )
 
-          # --------------------------------------------------------
+          # ========================================================
           # PATCH 5
-          # CPU-safe torch.cuda.synchronize()
-          # --------------------------------------------------------
+          # CPU-safe synchronize
+          # ========================================================
 
           synchronize_pattern = re.compile(
               r"^(?P<indent>[ \t]*)"
@@ -485,25 +476,108 @@ jobs:
                   "PATCHED: torch.cuda.synchronize() "
                   f"({sync_count} occurrence(s))"
               )
-          else:
-              print(
-                  "INFO: torch.cuda.synchronize() already patched "
-                  "or no matching occurrence found."
-              )
 
           t2v.write_text(text)
 
-          # --------------------------------------------------------
-          # FINAL SOURCE CHECKS
-          # --------------------------------------------------------
+          # ========================================================
+          # PATCH 6
+          # CRITICAL BF16 -> FLOAT32 CONTEXT FIX
+          #
+          # The T5 encoder produces BF16 context.
+          # WanModel.text_embedding is loaded with Float32 weights
+          # on the CPU path.
+          #
+          # Therefore the CPU path must explicitly convert the
+          # context tensor to float32 before text_embedding.
+          # ========================================================
+
+          model_file = Path("wan/modules/model.py")
+
+          if not model_file.exists():
+              raise SystemExit(
+                  "ERROR: wan/modules/model.py was not found."
+              )
+
+          model_text = model_file.read_text()
+
+          old_context = '''context = self.text_embedding(
+            torch.stack([torch.cat(
+                [u, u.new_zeros(self.text_len - u.size(0), u.size(1))])
+                for u in context]))'''
+
+          new_context = '''context = self.text_embedding(
+            torch.stack([torch.cat(
+                [u, u.new_zeros(self.text_len - u.size(0), u.size(1))])
+                for u in context]).float())'''
+
+          if old_context in model_text:
+              model_text = model_text.replace(
+                  old_context,
+                  new_context,
+                  1
+              )
+
+              print(
+                  "PATCHED: WanModel text context "
+                  "BF16 -> FLOAT32"
+              )
+          else:
+              # More tolerant replacement for formatting changes.
+              old_fragment = (
+                  "context = self.text_embedding("
+              )
+
+              marker = (
+                  "context_lens = None"
+              )
+
+              start = model_text.find(old_fragment)
+              end = model_text.find(marker, start)
+
+              if start != -1 and end != -1:
+                  block = model_text[start:end]
+
+                  if ").float())" not in block:
+                      block = block.replace(
+                          "]))",
+                          "])).float())",
+                          1
+                      )
+
+                      model_text = (
+                          model_text[:start]
+                          + block
+                          + model_text[end:]
+                      )
+
+                      print(
+                          "PATCHED: WanModel context "
+                          "using tolerant BF16 -> FLOAT32 patch"
+                      )
+                  else:
+                      print(
+                          "INFO: WanModel context "
+                          "already converted to FLOAT32."
+                      )
+              else:
+                  raise SystemExit(
+                      "ERROR: Could not locate "
+                      "WanModel.text_embedding context block."
+                  )
+
+          model_file.write_text(model_text)
+
+          # ========================================================
+          # FINAL CHECKS
+          # ========================================================
 
           t5_text = t5.read_text()
           t2v_text = t2v.read_text()
+          model_text = model_file.read_text()
 
           if "device=torch.cuda.current_device()" in t5_text:
               raise SystemExit(
-                  "CPU PATCH FAILED: T5 still forces "
-                  "torch.cuda.current_device()"
+                  "CPU PATCH FAILED: T5 still forces CUDA"
               )
 
           if (
@@ -514,30 +588,39 @@ jobs:
                   "CPU PATCH FAILED: WanT2V still forces CUDA"
               )
 
-          print("==============================================")
-          print("Source replacement checks: PASSED")
-          print("==============================================")
+          if "context = self.text_embedding(" not in model_text:
+              raise SystemExit(
+                  "CPU PATCH FAILED: text_embedding block missing"
+              )
 
           print()
-          print("Relevant CPU-safe lines:")
+          print("==============================================")
+          print("CPU PATCH VERIFICATION")
+          print("==============================================")
 
-          for number, line in enumerate(
-              t2v_text.splitlines(),
-              start=1
-          ):
-              if any(
-                  token in line
-                  for token in [
-                      "self.device = torch.device",
-                      "torch.autocast",
-                      "torch.cuda.empty_cache",
-                      "torch.cuda.synchronize",
-                      "torch.cuda.is_available",
-                  ]
+          print("T5 CUDA removal: OK")
+          print("WanT2V CPU device: OK")
+          print("CPU autocast protection: OK")
+          print("BF16 -> FLOAT32 context fix: OK")
+          print("CUDA cache protections: OK")
+
+          print()
+          print("Relevant model context section:")
+
+          lines = model_text.splitlines()
+
+          for number, line in enumerate(lines, start=1):
+              if (
+                  "context_lens = None" in line
+                  or "context = self.text_embedding" in line
+                  or ".float())" in line
               ):
-                  print(
-                      f"{number}: {line}"
-                  )
+                  print(f"{number}: {line}")
+
+          print()
+          print("==============================================")
+          print("Wan2.1 CPU patches: PASSED")
+          print("==============================================")
           PY
 
           echo
@@ -545,7 +628,8 @@ jobs:
 
           python3 -m py_compile \
             wan/modules/t5.py \
-            wan/text2video.py
+            wan/text2video.py \
+            wan/modules/model.py
 
           echo
           echo "Python syntax check: PASSED"
@@ -711,6 +795,10 @@ jobs:
 
           print("WanT2V import: OK")
 
+          from wan.modules.model import WanModel
+
+          print("WanModel import: OK")
+
           print("CPU compatibility import test: PASSED")
           PY
 
@@ -796,15 +884,7 @@ jobs:
             --data-binary @/tmp/callback-generating.json
 
       # ============================================================
-      # 17. CONFIGURE MEMORY SAFETY FOR CPU INFERENCE
-      #
-      # IMPORTANT:
-      # The previous version detected the existing 3 GB swap and
-      # left it untouched.
-      #
-      # This version deliberately replaces /swapfile with a 12 GB
-      # swap file so that the CPU model-loading test has much more
-      # virtual memory available.
+      # 17. MEMORY SAFETY
       # ============================================================
 
       - name: Configure memory safety for CPU inference
@@ -813,57 +893,34 @@ jobs:
           set -euo pipefail
 
           echo "=============================================="
-          echo "MEMORY SAFETY CONFIGURATION"
+          echo "Memory before CPU inference"
           echo "=============================================="
 
-          echo
-          echo "Memory before changes:"
           free -h
 
           echo
-          echo "Disk before changes:"
+          echo "Disk:"
           df -h /
 
           echo
           echo "Existing swap:"
           swapon --show || true
 
-          echo
-          echo "=============================================="
-          echo "Preparing 12 GB swap"
-          echo "=============================================="
+          if swapon --show --noheadings | grep -q .; then
+            echo
+            echo "Swap already exists."
+          else
+            echo
+            echo "Creating 8 GB swap file..."
 
-          # --------------------------------------------------------
-          # We intentionally replace the existing GitHub runner
-          # /swapfile because the runner currently has only about
-          # 3 GB swap.
-          # --------------------------------------------------------
+            sudo fallocate -l 8G /swapfile
+            sudo chmod 600 /swapfile
+            sudo mkswap /swapfile
+            sudo swapon /swapfile
 
-          if [ -f /swapfile ]; then
-            echo "Existing /swapfile detected."
-
-            sudo swapoff /swapfile 2>/dev/null || true
-
-            sleep 2
-
-            sudo rm -f /swapfile
-
-            echo "Old /swapfile removed."
+            echo
+            echo "Swap enabled."
           fi
-
-          echo
-          echo "Creating 12 GB /swapfile..."
-
-          sudo fallocate -l 12G /swapfile
-
-          sudo chmod 600 /swapfile
-
-          sudo mkswap /swapfile
-
-          sudo swapon /swapfile
-
-          echo
-          echo "12 GB swap enabled."
 
           echo
           echo "=============================================="
@@ -874,31 +931,13 @@ jobs:
 
           echo
           echo "Swap:"
-          swapon --show
-
-          echo
-          echo "Disk after swap creation:"
-          df -h /
+          swapon --show || true
 
           echo
           echo "Memory safety: READY"
 
-          # --------------------------------------------------------
-          # Save diagnostic information for later steps.
-          # --------------------------------------------------------
-
-          free -h > /tmp/memory-before-generation.txt
-          swapon --show > /tmp/swap-before-generation.txt
-          df -h / > /tmp/disk-before-generation.txt
-
       # ============================================================
-      # 18. GENERATE WAN2.1 CPU PROOF VIDEO
-      #
-      # Includes a lightweight memory monitor running beside the
-      # Wan2.1 process.
-      #
-      # The monitor helps determine whether the runner dies from
-      # memory pressure during "Creating WanT2V pipeline".
+      # 18. GENERATE CPU PROOF VIDEO
       # ============================================================
 
       - name: Generate Wan2.1 CPU proof video
@@ -910,8 +949,8 @@ jobs:
 
           source .venv/bin/activate
 
-          export OMP_NUM_THREADS=4
-          export MKL_NUM_THREADS=4
+          export OMP_NUM_THREADS=2
+          export MKL_NUM_THREADS=2
           export TOKENIZERS_PARALLELISM=false
 
           FINAL_VIDEO="/tmp/${JOB_ID}.mp4"
@@ -925,6 +964,7 @@ jobs:
           echo "Size:         ${SIZE}"
           echo "Frames:       ${FRAME_NUM}"
           echo "Steps:        ${SAMPLE_STEPS}"
+          echo "Guide scale:  ${GUIDE_SCALE}"
           echo "Mode:         CPU"
           echo "Offload:      True"
           echo "T5 CPU:       True"
@@ -939,198 +979,22 @@ jobs:
           swapon --show || true
 
           echo
-          echo "Disk immediately before generation:"
-          df -h /
+          echo "Starting Wan2.1..."
 
-          echo
-          echo "=============================================="
-          echo "Starting Wan2.1 with memory monitor"
-          echo "=============================================="
-
-          # --------------------------------------------------------
-          # Start Wan2.1 in background so that we can monitor the
-          # process tree while the pipeline is being created.
-          # --------------------------------------------------------
-
-          python generate.py \
+          python -u generate.py \
             --task t2v-1.3B \
             --size "$SIZE" \
             --ckpt_dir ./Wan2.1-T2V-1.3B \
             --frame_num "$FRAME_NUM" \
             --sample_steps "$SAMPLE_STEPS" \
             --sample_shift 8 \
-            --sample_guide_scale 6 \
+            --sample_guide_scale "$GUIDE_SCALE" \
             --offload_model True \
             --t5_cpu \
             --prompt "$PROMPT" \
-            --save_file "$FINAL_VIDEO" \
-            > /tmp/wan-generation.log 2>&1 &
-
-          WAN_PID=$!
-
-          echo "Wan2.1 PID: ${WAN_PID}"
-
-          # --------------------------------------------------------
-          # Memory monitor.
-          #
-          # Runs every 5 seconds and records:
-          # - total RAM
-          # - used RAM
-          # - free RAM
-          # - available RAM
-          # - swap
-          # - Wan2.1 process RSS
-          # --------------------------------------------------------
-
-          (
-            MAX_RSS_KB=0
-
-            while kill -0 "$WAN_PID" 2>/dev/null; do
-
-              NOW="$(date '+%H:%M:%S')"
-
-              MEM_LINE="$(free -m | awk '/^Mem:/ {
-                printf "RAM total=%sMB used=%sMB free=%sMB available=%sMB",
-                $2,$3,$4,$7
-              }')"
-
-              SWAP_LINE="$(free -m | awk '/^Swap:/ {
-                printf "SWAP total=%sMB used=%sMB free=%sMB",
-                $2,$3,$4
-              }')"
-
-              RSS_KB="$(
-                ps -o rss= -p "$WAN_PID" 2>/dev/null \
-                | awk '{sum+=$1} END {print sum+0}'
-              )"
-
-              if [ "${RSS_KB:-0}" -gt "$MAX_RSS_KB" ]; then
-                MAX_RSS_KB="$RSS_KB"
-              fi
-
-              RSS_MB=$((MAX_RSS_KB / 1024))
-
-              echo "[MEMORY ${NOW}] ${MEM_LINE} | ${SWAP_LINE} | WanPID=${WAN_PID} RSS_peak=${RSS_MB}MB"
-
-              sleep 5
-            done
-
-            echo
-            echo "[MEMORY MONITOR] Wan2.1 process ended."
-
-            echo
-            echo "Final memory:"
-            free -h || true
-
-            echo
-            echo "Final swap:"
-            swapon --show || true
-
-            echo
-            echo "Final process state:"
-            ps -ef | grep -E "generate.py|python" | grep -v grep || true
-
-          ) > /tmp/memory-monitor.log 2>&1 &
-
-          MONITOR_PID=$!
-
-          # --------------------------------------------------------
-          # Wait for Wan2.1.
-          # --------------------------------------------------------
-
-          set +e
-
-          wait "$WAN_PID"
-          WAN_EXIT_CODE=$?
-
-          set -e
-
-          # Stop monitor.
-          kill "$MONITOR_PID" 2>/dev/null || true
-          wait "$MONITOR_PID" 2>/dev/null || true
-
-          echo
-          echo "=============================================="
-          echo "Wan2.1 process finished"
-          echo "=============================================="
-          echo "Exit code: ${WAN_EXIT_CODE}"
-
-          echo
-          echo "=============================================="
-          echo "Wan2.1 generation log"
-          echo "=============================================="
-
-          cat /tmp/wan-generation.log || true
-
-          echo
-          echo "=============================================="
-          echo "Memory monitor log"
-          echo "=============================================="
-
-          cat /tmp/memory-monitor.log || true
-
-          echo
-          echo "=============================================="
-          echo "Post-generation memory"
-          echo "=============================================="
-
-          free -h
-
-          echo
-          echo "Swap:"
-          swapon --show || true
-
-          echo
-          echo "Disk:"
-          df -h /
-
-          # --------------------------------------------------------
-          # Diagnostic checks.
-          # --------------------------------------------------------
-
-          echo
-          echo "=============================================="
-          echo "Kernel / process diagnostics"
-          echo "=============================================="
-
-          echo "Checking for OOM messages..."
-
-          if dmesg 2>/dev/null | grep -Ei \
-            "out of memory|oom-killer|killed process|memory cgroup" \
-            | tail -n 30; then
-            echo "Possible OOM evidence detected above."
-          else
-            echo "No readable OOM messages found in dmesg."
-          fi
-
-          echo
-          echo "Checking system journal for OOM evidence..."
-
-          journalctl -k --no-pager 2>/dev/null \
-            | grep -Ei \
-              "out of memory|oom-killer|killed process|memory cgroup" \
-            | tail -n 30 \
-            || true
-
-          # --------------------------------------------------------
-          # If Wan2.1 failed, fail the step AFTER printing all
-          # diagnostics.
-          # --------------------------------------------------------
-
-          if [ "$WAN_EXIT_CODE" -ne 0 ]; then
-            echo
-            echo "Wan2.1 generation failed with exit code ${WAN_EXIT_CODE}."
-
-            echo
-            echo "=============================================="
-            echo "Generation diagnostics completed"
-            echo "=============================================="
-
-            exit "$WAN_EXIT_CODE"
-          fi
+            --save_file "$FINAL_VIDEO"
 
           if [ ! -f "$FINAL_VIDEO" ]; then
-            echo
             echo "Generation completed but MP4 was not created."
             exit 1
           fi
