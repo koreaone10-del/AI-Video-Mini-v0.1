@@ -796,13 +796,15 @@ jobs:
             --data-binary @/tmp/callback-generating.json
 
       # ============================================================
-      # 17. CONFIGURE SWAP FOR CPU MODEL LOADING
+      # 17. CONFIGURE MEMORY SAFETY FOR CPU INFERENCE
       #
-      # NEW MEMORY-SAFETY STEP.
+      # IMPORTANT:
+      # The previous version detected the existing 3 GB swap and
+      # left it untouched.
       #
-      # This is the ONLY functional addition for the current error.
-      # It does not change Wan2.1, the model, resolution, frames,
-      # steps, callbacks, Render or GitHub architecture.
+      # This version deliberately replaces /swapfile with a 12 GB
+      # swap file so that the CPU model-loading test has much more
+      # virtual memory available.
       # ============================================================
 
       - name: Configure memory safety for CPU inference
@@ -811,42 +813,57 @@ jobs:
           set -euo pipefail
 
           echo "=============================================="
-          echo "Memory before CPU inference"
+          echo "MEMORY SAFETY CONFIGURATION"
           echo "=============================================="
 
+          echo
+          echo "Memory before changes:"
           free -h
 
           echo
-          echo "Disk:"
+          echo "Disk before changes:"
           df -h /
 
           echo
           echo "Existing swap:"
           swapon --show || true
 
+          echo
+          echo "=============================================="
+          echo "Preparing 12 GB swap"
+          echo "=============================================="
+
           # --------------------------------------------------------
-          # Create an 8 GB swap file only if swap is not already
-          # available.
+          # We intentionally replace the existing GitHub runner
+          # /swapfile because the runner currently has only about
+          # 3 GB swap.
           # --------------------------------------------------------
 
-          if swapon --show --noheadings | grep -q .; then
-            echo
-            echo "Swap already exists."
-          else
-            echo
-            echo "Creating 8 GB swap file..."
+          if [ -f /swapfile ]; then
+            echo "Existing /swapfile detected."
 
-            sudo fallocate -l 8G /swapfile
+            sudo swapoff /swapfile 2>/dev/null || true
 
-            sudo chmod 600 /swapfile
+            sleep 2
 
-            sudo mkswap /swapfile
+            sudo rm -f /swapfile
 
-            sudo swapon /swapfile
-
-            echo
-            echo "Swap enabled."
+            echo "Old /swapfile removed."
           fi
+
+          echo
+          echo "Creating 12 GB /swapfile..."
+
+          sudo fallocate -l 12G /swapfile
+
+          sudo chmod 600 /swapfile
+
+          sudo mkswap /swapfile
+
+          sudo swapon /swapfile
+
+          echo
+          echo "12 GB swap enabled."
 
           echo
           echo "=============================================="
@@ -857,13 +874,31 @@ jobs:
 
           echo
           echo "Swap:"
-          swapon --show || true
+          swapon --show
+
+          echo
+          echo "Disk after swap creation:"
+          df -h /
 
           echo
           echo "Memory safety: READY"
 
+          # --------------------------------------------------------
+          # Save diagnostic information for later steps.
+          # --------------------------------------------------------
+
+          free -h > /tmp/memory-before-generation.txt
+          swapon --show > /tmp/swap-before-generation.txt
+          df -h / > /tmp/disk-before-generation.txt
+
       # ============================================================
       # 18. GENERATE WAN2.1 CPU PROOF VIDEO
+      #
+      # Includes a lightweight memory monitor running beside the
+      # Wan2.1 process.
+      #
+      # The monitor helps determine whether the runner dies from
+      # memory pressure during "Creating WanT2V pipeline".
       # ============================================================
 
       - name: Generate Wan2.1 CPU proof video
@@ -903,6 +938,20 @@ jobs:
           echo "Swap immediately before generation:"
           swapon --show || true
 
+          echo
+          echo "Disk immediately before generation:"
+          df -h /
+
+          echo
+          echo "=============================================="
+          echo "Starting Wan2.1 with memory monitor"
+          echo "=============================================="
+
+          # --------------------------------------------------------
+          # Start Wan2.1 in background so that we can monitor the
+          # process tree while the pipeline is being created.
+          # --------------------------------------------------------
+
           python generate.py \
             --task t2v-1.3B \
             --size "$SIZE" \
@@ -914,9 +963,174 @@ jobs:
             --offload_model True \
             --t5_cpu \
             --prompt "$PROMPT" \
-            --save_file "$FINAL_VIDEO"
+            --save_file "$FINAL_VIDEO" \
+            > /tmp/wan-generation.log 2>&1 &
+
+          WAN_PID=$!
+
+          echo "Wan2.1 PID: ${WAN_PID}"
+
+          # --------------------------------------------------------
+          # Memory monitor.
+          #
+          # Runs every 5 seconds and records:
+          # - total RAM
+          # - used RAM
+          # - free RAM
+          # - available RAM
+          # - swap
+          # - Wan2.1 process RSS
+          # --------------------------------------------------------
+
+          (
+            MAX_RSS_KB=0
+
+            while kill -0 "$WAN_PID" 2>/dev/null; do
+
+              NOW="$(date '+%H:%M:%S')"
+
+              MEM_LINE="$(free -m | awk '/^Mem:/ {
+                printf "RAM total=%sMB used=%sMB free=%sMB available=%sMB",
+                $2,$3,$4,$7
+              }')"
+
+              SWAP_LINE="$(free -m | awk '/^Swap:/ {
+                printf "SWAP total=%sMB used=%sMB free=%sMB",
+                $2,$3,$4
+              }')"
+
+              RSS_KB="$(
+                ps -o rss= -p "$WAN_PID" 2>/dev/null \
+                | awk '{sum+=$1} END {print sum+0}'
+              )"
+
+              if [ "${RSS_KB:-0}" -gt "$MAX_RSS_KB" ]; then
+                MAX_RSS_KB="$RSS_KB"
+              fi
+
+              RSS_MB=$((MAX_RSS_KB / 1024))
+
+              echo "[MEMORY ${NOW}] ${MEM_LINE} | ${SWAP_LINE} | WanPID=${WAN_PID} RSS_peak=${RSS_MB}MB"
+
+              sleep 5
+            done
+
+            echo
+            echo "[MEMORY MONITOR] Wan2.1 process ended."
+
+            echo
+            echo "Final memory:"
+            free -h || true
+
+            echo
+            echo "Final swap:"
+            swapon --show || true
+
+            echo
+            echo "Final process state:"
+            ps -ef | grep -E "generate.py|python" | grep -v grep || true
+
+          ) > /tmp/memory-monitor.log 2>&1 &
+
+          MONITOR_PID=$!
+
+          # --------------------------------------------------------
+          # Wait for Wan2.1.
+          # --------------------------------------------------------
+
+          set +e
+
+          wait "$WAN_PID"
+          WAN_EXIT_CODE=$?
+
+          set -e
+
+          # Stop monitor.
+          kill "$MONITOR_PID" 2>/dev/null || true
+          wait "$MONITOR_PID" 2>/dev/null || true
+
+          echo
+          echo "=============================================="
+          echo "Wan2.1 process finished"
+          echo "=============================================="
+          echo "Exit code: ${WAN_EXIT_CODE}"
+
+          echo
+          echo "=============================================="
+          echo "Wan2.1 generation log"
+          echo "=============================================="
+
+          cat /tmp/wan-generation.log || true
+
+          echo
+          echo "=============================================="
+          echo "Memory monitor log"
+          echo "=============================================="
+
+          cat /tmp/memory-monitor.log || true
+
+          echo
+          echo "=============================================="
+          echo "Post-generation memory"
+          echo "=============================================="
+
+          free -h
+
+          echo
+          echo "Swap:"
+          swapon --show || true
+
+          echo
+          echo "Disk:"
+          df -h /
+
+          # --------------------------------------------------------
+          # Diagnostic checks.
+          # --------------------------------------------------------
+
+          echo
+          echo "=============================================="
+          echo "Kernel / process diagnostics"
+          echo "=============================================="
+
+          echo "Checking for OOM messages..."
+
+          if dmesg 2>/dev/null | grep -Ei \
+            "out of memory|oom-killer|killed process|memory cgroup" \
+            | tail -n 30; then
+            echo "Possible OOM evidence detected above."
+          else
+            echo "No readable OOM messages found in dmesg."
+          fi
+
+          echo
+          echo "Checking system journal for OOM evidence..."
+
+          journalctl -k --no-pager 2>/dev/null \
+            | grep -Ei \
+              "out of memory|oom-killer|killed process|memory cgroup" \
+            | tail -n 30 \
+            || true
+
+          # --------------------------------------------------------
+          # If Wan2.1 failed, fail the step AFTER printing all
+          # diagnostics.
+          # --------------------------------------------------------
+
+          if [ "$WAN_EXIT_CODE" -ne 0 ]; then
+            echo
+            echo "Wan2.1 generation failed with exit code ${WAN_EXIT_CODE}."
+
+            echo
+            echo "=============================================="
+            echo "Generation diagnostics completed"
+            echo "=============================================="
+
+            exit "$WAN_EXIT_CODE"
+          fi
 
           if [ ! -f "$FINAL_VIDEO" ]; then
+            echo
             echo "Generation completed but MP4 was not created."
             exit 1
           fi
