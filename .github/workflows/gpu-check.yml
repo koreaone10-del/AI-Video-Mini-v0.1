@@ -1,0 +1,67 @@
+name: GPU Check
+
+on:
+  workflow_dispatch:
+
+jobs:
+  gpu-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Runner information
+        run: |
+          echo "========================================"
+          echo "RUNNER INFORMATION"
+          echo "========================================"
+          echo "Runner name: $RUNNER_NAME"
+          echo "Runner OS: $RUNNER_OS"
+          echo "Runner architecture: $RUNNER_ARCH"
+          echo "Runner temp: $RUNNER_TEMP"
+          echo
+          uname -a
+          echo
+          lscpu | head -40
+
+      - name: Check NVIDIA GPU
+        run: |
+          echo "========================================"
+          echo "NVIDIA GPU CHECK"
+          echo "========================================"
+
+          if command -v nvidia-smi >/dev/null 2>&1; then
+            echo "nvidia-smi: FOUND"
+            echo
+            nvidia-smi
+            echo
+            echo "GPU SUMMARY:"
+            nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv
+          else
+            echo "nvidia-smi: NOT FOUND"
+            echo "No NVIDIA GPU is available on this runner."
+          fi
+
+      - name: Check CUDA tools
+        run: |
+          echo "========================================"
+          echo "CUDA CHECK"
+          echo "========================================"
+
+          if command -v nvcc >/dev/null 2>&1; then
+            echo "nvcc: FOUND"
+            nvcc --version
+          else
+            echo "nvcc: NOT FOUND"
+          fi
+
+      - name: Check Python
+        run: |
+          echo "========================================"
+          echo "PYTHON CHECK"
+          echo "========================================"
+          python3 --version
+
+      - name: Final result
+        run: |
+          echo "========================================"
+          echo "GPU PROBE COMPLETED"
+          echo "========================================"
