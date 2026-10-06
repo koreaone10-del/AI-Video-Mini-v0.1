@@ -148,6 +148,14 @@ jobs:
 
       # ============================================================
       # 4. SYSTEM DEPENDENCIES
+      #
+      # ONLY CHANGE FROM PREVIOUS VERSION:
+      # Do not run apt-get update/install blindly.
+      # GitHub ubuntu-24.04 runners already contain the required
+      # tools in the normal case.
+      #
+      # If something is actually missing, install only the missing
+      # package(s), and only then perform apt-get update.
       # ============================================================
 
       - name: Install system dependencies
@@ -155,25 +163,59 @@ jobs:
         run: |
           set -euo pipefail
 
-          sudo apt-get update
+          echo "=============================================="
+          echo "Checking GitHub runner system tools"
+          echo "=============================================="
 
-          sudo apt-get install -y \
-            ffmpeg \
-            git \
-            python3 \
-            python3-pip \
-            python3-venv \
-            curl \
-            ca-certificates
+          MISSING_PACKAGES=()
 
+          command -v ffmpeg >/dev/null 2>&1 || MISSING_PACKAGES+=("ffmpeg")
+          command -v git >/dev/null 2>&1 || MISSING_PACKAGES+=("git")
+          command -v python3 >/dev/null 2>&1 || MISSING_PACKAGES+=("python3")
+          command -v pip3 >/dev/null 2>&1 || MISSING_PACKAGES+=("python3-pip")
+          command -v curl >/dev/null 2>&1 || MISSING_PACKAGES+=("curl")
+
+          if python3 -m venv --help >/dev/null 2>&1; then
+            echo "python3-venv: available"
+          else
+            MISSING_PACKAGES+=("python3-venv")
+          fi
+
+          if [ "${#MISSING_PACKAGES[@]}" -eq 0 ]; then
+            echo
+            echo "All required system tools are already available."
+            echo "Skipping apt-get update/install."
+          else
+            echo
+            echo "Missing packages detected:"
+            printf ' - %s\n' "${MISSING_PACKAGES[@]}"
+
+            echo
+            echo "Installing only missing packages..."
+
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends \
+              "${MISSING_PACKAGES[@]}"
+          fi
+
+          echo
           echo "=============================================="
           echo "System verification"
           echo "=============================================="
 
           ffmpeg -version | head -n 1
           python3 --version
+          python3 -m pip --version
           git --version
           curl --version | head -n 1
+
+          echo
+          echo "Python venv:"
+          python3 -m venv --help >/dev/null
+          echo "python3-venv: OK"
+
+          echo
+          echo "System dependencies: READY"
 
       # ============================================================
       # 5. HARDWARE CHECK
