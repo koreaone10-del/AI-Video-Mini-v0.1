@@ -50,8 +50,10 @@ jobs:
 
       VIDEOGEN_MODEL: wan21-t2v-1.3b
 
-      # First golden proof:
-      # exact verified CPU geometry from videogen project.
+      # ============================================================
+      # GOLDEN CPU CONFIGURATION
+      # Keep this stable until the MP4 pipeline is proven end-to-end.
+      # ============================================================
       FRAME_WIDTH: "256"
       FRAME_HEIGHT: "256"
       FRAME_COUNT: "9"
@@ -651,7 +653,7 @@ jobs:
           fi
 
       # ============================================================
-      # 18. INSPECT VIDEO
+      # 18. INSPECT AND VALIDATE VIDEO
       # ============================================================
       - name: Inspect final video
         shell: bash
@@ -677,7 +679,7 @@ jobs:
           ls -lh "${FINAL_VIDEO}"
 
           echo
-          echo "FFprobe:"
+          echo "FFprobe full information:"
 
           ffprobe \
             -hide_banner \
@@ -690,14 +692,93 @@ jobs:
             "${FINAL_VIDEO}"
 
           echo
-          echo "Basic MP4 check:"
+          echo "------------------------------------------------------------"
+          echo "Checking video stream..."
+          echo "------------------------------------------------------------"
 
-          ffprobe \
+          VIDEO_STREAM="$(ffprobe \
             -v error \
             -select_streams v:0 \
             -show_entries stream=codec_name,width,height \
-            -of default=noprint_wrappers=1 \
-            "${FINAL_VIDEO}"
+            -of csv=p=0 \
+            "${FINAL_VIDEO}" || true)"
+
+          if [ -z "${VIDEO_STREAM}" ]; then
+            echo "ERROR: No valid video stream found."
+            exit 1
+          fi
+
+          echo "Video stream:"
+          echo "${VIDEO_STREAM}"
+
+          echo
+          echo "------------------------------------------------------------"
+          echo "Checking duration..."
+          echo "------------------------------------------------------------"
+
+          VIDEO_DURATION="$(ffprobe \
+            -v error \
+            -show_entries format=duration \
+            -of default=noprint_wrappers=1:nokey=1 \
+            "${FINAL_VIDEO}" | tr -d '\r' || true)"
+
+          echo "Detected duration: ${VIDEO_DURATION}"
+
+          if [ -z "${VIDEO_DURATION}" ]; then
+            echo "ERROR: Video duration is missing."
+            exit 1
+          fi
+
+          if ! awk "BEGIN { exit !(${VIDEO_DURATION} > 0) }"; then
+            echo "ERROR: Video duration is zero or invalid."
+            exit 1
+          fi
+
+          echo
+          echo "------------------------------------------------------------"
+          echo "Counting decoded video frames..."
+          echo "------------------------------------------------------------"
+
+          FRAME_COUNT_ACTUAL="$(ffprobe \
+            -v error \
+            -select_streams v:0 \
+            -count_frames \
+            -show_entries stream=nb_read_frames \
+            -of default=noprint_wrappers=1:nokey=1 \
+            "${FINAL_VIDEO}" | head -n 1 | tr -d '\r' || true)"
+
+          echo "Decoded frames: ${FRAME_COUNT_ACTUAL}"
+
+          if [ -z "${FRAME_COUNT_ACTUAL}" ] || [ "${FRAME_COUNT_ACTUAL}" = "N/A" ]; then
+            echo "ERROR: Could not determine decoded frame count."
+            exit 1
+          fi
+
+          if ! awk "BEGIN { exit !(${FRAME_COUNT_ACTUAL} > 0) }"; then
+            echo "ERROR: Video contains zero decoded frames."
+            exit 1
+          fi
+
+          echo
+          echo "------------------------------------------------------------"
+          echo "Decoding test..."
+          echo "------------------------------------------------------------"
+
+          ffmpeg \
+            -hide_banner \
+            -loglevel error \
+            -i "${FINAL_VIDEO}" \
+            -map 0:v:0 \
+            -f null \
+            -
+
+          echo
+          echo "============================================================"
+          echo "VIDEO VALIDATION PASSED"
+          echo "============================================================"
+          echo "Duration: ${VIDEO_DURATION}s"
+          echo "Frames:   ${FRAME_COUNT_ACTUAL}"
+          echo "============================================================"
 
       # ============================================================
       # 19. CALLBACK UPLOADING
@@ -721,12 +802,12 @@ jobs:
             "status": "processing",
             "stage": "uploading",
             "progress": 80,
-            "message": "Uploading generated MP4"
+            "message": "Uploading validated MP4 to Render"
           }
           JSON
 
       # ============================================================
-      # 20. UPLOAD VIDEO
+      # 20. UPLOAD VIDEO - RAW MP4 ONLY
       # ============================================================
       - name: Upload video to Render
         shell: bash
@@ -734,10 +815,11 @@ jobs:
           set -e
 
           echo "============================================================"
-          echo "UPLOADING VIDEO"
+          echo "UPLOADING VIDEO TO RENDER"
           echo "============================================================"
 
-          echo "File:"
+          echo
+          echo "Local file:"
           ls -lh "${FINAL_VIDEO}"
 
           UPLOAD_URL="${RENDER_BASE_URL}/api/worker/jobs/${JOB_ID}/upload"
@@ -747,49 +829,195 @@ jobs:
           echo "${UPLOAD_URL}"
 
           echo
-          echo "Trying multipart upload..."
+          echo "Uploading raw video/mp4..."
 
-          if curl \
+          curl \
             --fail-with-body \
             --silent \
             --show-error \
             --connect-timeout 30 \
             --max-time 600 \
             -X POST \
+            -H "Content-Type: video/mp4" \
             -H "Authorization: Bearer ${RENDER_CALLBACK_SECRET}" \
             -H "x-callback-secret: ${RENDER_CALLBACK_SECRET}" \
             -H "x-render-callback-secret: ${RENDER_CALLBACK_SECRET}" \
-            -F "video=@${FINAL_VIDEO};type=video/mp4" \
-            -F "file=@${FINAL_VIDEO};type=video/mp4" \
-            "${UPLOAD_URL}"
-          then
-            echo
-            echo "Multipart upload succeeded."
-          else
-            echo
-            echo "Multipart upload failed."
-            echo "Trying raw MP4 upload..."
+            --data-binary "@${FINAL_VIDEO}" \
+            "${UPLOAD_URL}" \
+            | tee /tmp/upload-response.json
 
-            curl \
-              --fail-with-body \
-              --silent \
-              --show-error \
-              --connect-timeout 30 \
-              --max-time 600 \
-              -X POST \
-              -H "Content-Type: video/mp4" \
-              -H "Authorization: Bearer ${RENDER_CALLBACK_SECRET}" \
-              -H "x-callback-secret: ${RENDER_CALLBACK_SECRET}" \
-              -H "x-render-callback-secret: ${RENDER_CALLBACK_SECRET}" \
-              --data-binary "@${FINAL_VIDEO}" \
-              "${UPLOAD_URL}"
+          echo
+          echo "============================================================"
+          echo "UPLOAD RESPONSE"
+          echo "============================================================"
 
-            echo
-            echo "Raw upload succeeded."
-          fi
+          cat /tmp/upload-response.json
+
+          echo
+          echo "Raw MP4 upload completed successfully."
 
       # ============================================================
-      # 21. COMPLETED
+      # 21. VERIFY VIDEO ON RENDER
+      # ============================================================
+      - name: Verify video on Render
+        shell: bash
+        run: |
+          set -e
+
+          echo "============================================================"
+          echo "END-TO-END VIDEO VERIFICATION"
+          echo "============================================================"
+
+          VIDEO_URL="${RENDER_BASE_URL}/api/jobs/${JOB_ID}/video"
+          VERIFY_FILE="/tmp/render-verified-${JOB_ID}.mp4"
+
+          rm -f "${VERIFY_FILE}"
+
+          echo
+          echo "Video URL:"
+          echo "${VIDEO_URL}"
+
+          echo
+          echo "Downloading video from Render for verification..."
+
+          HTTP_STATUS="$(curl \
+            --silent \
+            --show-error \
+            --location \
+            --connect-timeout 30 \
+            --max-time 600 \
+            --output "${VERIFY_FILE}" \
+            --write-out "%{http_code}" \
+            "${VIDEO_URL}")"
+
+          echo
+          echo "HTTP status: ${HTTP_STATUS}"
+
+          if [ "${HTTP_STATUS}" != "200" ]; then
+            echo "ERROR: Render video endpoint did not return HTTP 200."
+            exit 1
+          fi
+
+          if [ ! -f "${VERIFY_FILE}" ]; then
+            echo "ERROR: Verification file was not downloaded."
+            exit 1
+          fi
+
+          if [ ! -s "${VERIFY_FILE}" ]; then
+            echo "ERROR: Render returned an empty video."
+            exit 1
+          fi
+
+          echo
+          echo "Downloaded Render video:"
+          ls -lh "${VERIFY_FILE}"
+
+          echo
+          echo "Render video FFprobe:"
+
+          ffprobe \
+            -hide_banner \
+            -v error \
+            -show_entries \
+            format=filename,size,duration,format_name \
+            -show_entries \
+            stream=index,codec_name,codec_type,width,height,r_frame_rate,nb_frames \
+            -of json \
+            "${VERIFY_FILE}"
+
+          echo
+          echo "------------------------------------------------------------"
+          echo "Checking Render video stream..."
+          echo "------------------------------------------------------------"
+
+          RENDER_VIDEO_STREAM="$(ffprobe \
+            -v error \
+            -select_streams v:0 \
+            -show_entries stream=codec_name,width,height \
+            -of csv=p=0 \
+            "${VERIFY_FILE}" || true)"
+
+          if [ -z "${RENDER_VIDEO_STREAM}" ]; then
+            echo "ERROR: Render returned no valid video stream."
+            exit 1
+          fi
+
+          echo "Render video stream:"
+          echo "${RENDER_VIDEO_STREAM}"
+
+          echo
+          echo "------------------------------------------------------------"
+          echo "Checking Render video duration..."
+          echo "------------------------------------------------------------"
+
+          RENDER_DURATION="$(ffprobe \
+            -v error \
+            -show_entries format=duration \
+            -of default=noprint_wrappers=1:nokey=1 \
+            "${VERIFY_FILE}" | tr -d '\r' || true)"
+
+          echo "Render duration: ${RENDER_DURATION}"
+
+          if [ -z "${RENDER_DURATION}" ]; then
+            echo "ERROR: Render video duration is missing."
+            exit 1
+          fi
+
+          if ! awk "BEGIN { exit !(${RENDER_DURATION} > 0) }"; then
+            echo "ERROR: Render video duration is zero or invalid."
+            exit 1
+          fi
+
+          echo
+          echo "------------------------------------------------------------"
+          echo "Counting Render video frames..."
+          echo "------------------------------------------------------------"
+
+          RENDER_FRAME_COUNT="$(ffprobe \
+            -v error \
+            -select_streams v:0 \
+            -count_frames \
+            -show_entries stream=nb_read_frames \
+            -of default=noprint_wrappers=1:nokey=1 \
+            "${VERIFY_FILE}" | head -n 1 | tr -d '\r' || true)"
+
+          echo "Render decoded frames: ${RENDER_FRAME_COUNT}"
+
+          if [ -z "${RENDER_FRAME_COUNT}" ] || [ "${RENDER_FRAME_COUNT}" = "N/A" ]; then
+            echo "ERROR: Could not determine Render video frame count."
+            exit 1
+          fi
+
+          if ! awk "BEGIN { exit !(${RENDER_FRAME_COUNT} > 0) }"; then
+            echo "ERROR: Render video contains zero decoded frames."
+            exit 1
+          fi
+
+          echo
+          echo "------------------------------------------------------------"
+          echo "Decoding Render video..."
+          echo "------------------------------------------------------------"
+
+          ffmpeg \
+            -hide_banner \
+            -loglevel error \
+            -i "${VERIFY_FILE}" \
+            -map 0:v:0 \
+            -f null \
+            -
+
+          echo
+          echo "============================================================"
+          echo "RENDER VIDEO VERIFICATION PASSED"
+          echo "============================================================"
+          echo "HTTP:       ${HTTP_STATUS}"
+          echo "Duration:   ${RENDER_DURATION}s"
+          echo "Frames:     ${RENDER_FRAME_COUNT}"
+          echo "Video URL:  ${VIDEO_URL}"
+          echo "============================================================"
+
+      # ============================================================
+      # 22. COMPLETED
       # ============================================================
       - name: Callback - Completed
         shell: bash
@@ -830,7 +1058,7 @@ jobs:
           JSON
 
       # ============================================================
-      # 22. FAILURE CALLBACK
+      # 23. FAILURE CALLBACK
       # ============================================================
       - name: Callback - Failed
         if: failure()
@@ -874,7 +1102,7 @@ jobs:
           echo "Failure callback sent."
 
       # ============================================================
-      # 23. FINAL DIAGNOSTICS
+      # 24. FINAL DIAGNOSTICS
       # ============================================================
       - name: Final diagnostics
         if: always()
@@ -901,8 +1129,23 @@ jobs:
 
           echo
           echo "Generation log:"
+
           if [ -f /tmp/wan-generation.log ]; then
             tail -n 100 /tmp/wan-generation.log
           else
             echo "No generation log."
           fi
+
+          echo
+          echo "Upload response:"
+
+          if [ -f /tmp/upload-response.json ]; then
+            cat /tmp/upload-response.json
+          else
+            echo "No upload response."
+          fi
+
+          echo
+          echo "============================================================"
+          echo "END OF DIAGNOSTICS"
+          echo "============================================================"
