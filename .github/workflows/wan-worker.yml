@@ -64,15 +64,22 @@ jobs:
             DURATION="${{ inputs.duration }}"
           fi
 
+          # Wan2.1 generate.py only accepts these exact sizes:
+          # 720*1280
+          # 1280*720
+          # 480*832
+          # 832*480
+          # 1024*1024
+
           case "$ASPECT_RATIO" in
             "16:9")
-              SIZE="480*272"
+              SIZE="832*480"
               ;;
             "9:16")
-              SIZE="272*480"
+              SIZE="480*832"
               ;;
             "1:1")
-              SIZE="272*272"
+              SIZE="1024*1024"
               ;;
             *)
               echo "Unsupported aspect ratio: $ASPECT_RATIO"
