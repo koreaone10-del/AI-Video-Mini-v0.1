@@ -636,6 +636,17 @@ jobs:
           echo "Output:"
           ls -lh "${FINAL_VIDEO}"
 
+      # Archive only the known, non-sensitive public diagnostic prompt.
+      # Never archive arbitrary user-generated videos from this public repository.
+      - name: Archive raw generic diagnostic sample
+        if: ${{ success() && env.PROMPT == 'A small red ball rolling on a wooden table' }}
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: raw-wan-generic-diagnostic-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.FINAL_VIDEO }}
+          retention-days: 3
+
       # ============================================================
       # 16.5. NORMALIZE FINAL VIDEO
       #
