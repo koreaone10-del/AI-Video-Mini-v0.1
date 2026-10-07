@@ -51,16 +51,15 @@ jobs:
       VIDEOGEN_MODEL: wan21-t2v-1.3b
 
       # ============================================================
-      # GOLDEN CPU CONFIGURATION
-      # DO NOT CHANGE YET.
+      # CONTROLLED QUALITY TEST
+      # Keep geometry fixed to isolate the preset effect.
       # ============================================================
       FRAME_WIDTH: "256"
       FRAME_HEIGHT: "256"
       FRAME_COUNT: "9"
 
-      # Draft preset automatically selects the 4-step
-      # self-forcing DMD LoRA for Wan 2.1 1.3B.
-      VIDEO_PRESET: "draft"
+      # Balanced preset selects the 8-step path for Wan 2.1 1.3B.
+      VIDEO_PRESET: "balanced"
 
       OUTPUT_DIR: /tmp/wan-output
       FINAL_VIDEO: /tmp/wan-output/final.mp4
@@ -85,7 +84,7 @@ jobs:
           echo "WAN2.1 GOLDEN CPU WORKER"
           echo "============================================================"
           echo "Job ID:       ${JOB_ID}"
-          echo "Prompt:       ${PROMPT}"
+          printf "Prompt:       [redacted; %s characters]\n" "${#PROMPT}"
           echo "Aspect:       ${ASPECT_RATIO}"
           echo "Duration:     ${DURATION}s"
           echo "Model:        ${VIDEOGEN_MODEL}"
@@ -565,7 +564,7 @@ jobs:
           echo "GOLDEN WAN2.1 CPU GENERATION"
           echo "============================================================"
           echo "Job:        ${JOB_ID}"
-          echo "Prompt:     ${PROMPT}"
+          printf "Prompt:     [redacted; %s characters]\n" "${#PROMPT}"
           echo "Model:      ${VIDEOGEN_MODEL}"
           echo "Preset:     ${VIDEO_PRESET}"
           echo "Aspect:     ${ASPECT_RATIO}"
