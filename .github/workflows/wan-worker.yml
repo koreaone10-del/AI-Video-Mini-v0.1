@@ -57,8 +57,8 @@ jobs:
       FRAME_HEIGHT: "256"
       FRAME_COUNT: "9"
 
-      # Temporary full-sampling diagnostic; geometry remains fixed.
-      VIDEO_PRESET: "quality"
+      # Balanced preset selects the 8-step path for Wan 2.1 1.3B.
+      VIDEO_PRESET: "balanced"
 
       OUTPUT_DIR: /tmp/wan-output
       FINAL_VIDEO: /tmp/wan-output/final.mp4
@@ -977,16 +977,6 @@ jobs:
           echo "Duration: ${VIDEO_DURATION}s"
           echo "Frames:   ${FRAME_COUNT_ACTUAL}"
           echo "============================================================"
-
-      # Archive only this fixed, non-sensitive synthetic diagnostic sample.
-      # Never archive arbitrary user-generated videos from this public repository.
-      - name: Archive generic quality diagnostic
-        if: ${{ success() && github.event.client_payload.prompt == 'A small red ball rolling on a wooden table' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: quality-wan-generic-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ env.FINAL_VIDEO }}
-          retention-days: 1
 
       # ============================================================
       # 19. CALLBACK UPLOADING
