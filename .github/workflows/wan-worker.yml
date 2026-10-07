@@ -240,6 +240,52 @@ jobs:
           ls -la
 
       # ============================================================
+      # 5.5. PATCH WAN VAE LATENT DE-NORMALIZATION
+      # ============================================================
+      - name: Patch Wan VAE latent de-normalization
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("videogen/src/videogen/backends/wan.py")
+          source = path.read_text()
+          anchor = "    def _apply_lora(self, pipe, plan) -> None:\n"
+
+          if source.count(anchor) != 1:
+              raise SystemExit("Unexpected videogen Wan backend; refusing unsafe patch")
+          if "def prepare_latents_for_decode(" in source:
+              raise SystemExit("Wan latent decode override already exists; refusing duplicate patch")
+
+          patch = '''    def prepare_latents_for_decode(self, spec, plan, vae, latents, seed: int):
+                  """Undo Wan channel-wise latent normalization before VAE decode."""
+                  import torch
+
+                  channels = int(vae.config.z_dim)
+                  if latents.shape[1] != channels:
+                      raise ValueError(
+                          f"Wan latent channels {latents.shape[1]} do not match VAE z_dim {channels}"
+                      )
+                  shape = (1, channels, 1, 1, 1)
+                  mean = torch.tensor(vae.config.latents_mean).view(*shape).to(
+                      device=latents.device, dtype=latents.dtype
+                  )
+                  inverse_std = 1.0 / torch.tensor(vae.config.latents_std).view(*shape).to(
+                      device=latents.device, dtype=latents.dtype
+                  )
+                  return latents / inverse_std + mean
+
+          '''
+
+          updated = source.replace(anchor, patch + anchor, 1)
+          compile(updated, str(path), "exec")
+          path.write_text(updated)
+          print("Applied Wan latents_mean/latents_std inverse transform before VAE decode")
+          PY
+
+      # ============================================================
       # 6. CREATE PYTHON ENVIRONMENT
       # ============================================================
       - name: Create Python environment
@@ -636,25 +682,11 @@ jobs:
           echo "Output:"
           ls -lh "${FINAL_VIDEO}"
 
-      # Archive only the known, non-sensitive public diagnostic prompt.
-      # Never archive arbitrary user-generated videos from this public repository.
-      - name: Archive raw generic diagnostic sample
-        if: ${{ success() && env.PROMPT == 'A small red ball rolling on a wooden table' }}
-        uses: actions/upload-artifact@v4
-        continue-on-error: true
-        with:
-          name: raw-wan-generic-diagnostic-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ env.FINAL_VIDEO }}
-          retention-days: 3
-
       # ============================================================
       # 16.5. NORMALIZE FINAL VIDEO
       #
-      # IMPORTANT:
-      # Keep the successful 9-frame CPU generation unchanged.
-      #
-      # This stage converts the generated clip into a browser-friendly
-      # MP4 whose playback duration matches DURATION.
+      # This stage only changes playback timing for the temporary 9-frame
+      # CPU diagnostic clip; it cannot create extra model frames or repair content.
       # ============================================================
       - name: Normalize final video
         shell: bash
